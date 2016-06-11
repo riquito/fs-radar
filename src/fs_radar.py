@@ -3,6 +3,7 @@
 from re import search
 from os.path import expanduser
 from glob import glob
+import logging
 
 
 def expand_glob_generator(glob_path_list):
@@ -51,8 +52,13 @@ if __name__ == '__main__':
                               help='exclude this path (include first, then exclude)')
     parser.add_argument('-e', '--exclude-by-regexp', action='append', default=[],
                               help='exclude paths that match these regexp')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                              help='verbose output')
 
     args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
 
     paths_to_watch = get_paths_to_watch(args.include, args.exclude_by_path, args.exclude_by_regexp)
 
