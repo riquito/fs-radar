@@ -6,6 +6,9 @@ from os.path import expanduser, join, abspath
 from glob import glob
 from inotify_simple import INotify, flags, masks
 import logging
+from .path_filter import makePathFilter, makeDirFilter
+from .config import load_from_toml, ConfigException
+from itertools import chain
 
 
 def expand_glob_generator(glob_path_list):
@@ -42,6 +45,7 @@ def get_paths_to_watch(includes, excludes=None, exclusion_regexps=None):
     for path in set(includes) - set(excludes):
         if not exclusion_regexps or not match_any(path, exclusion_regexps):
             yield path
+
 
 class FsRadar:
     def __init__(self):
@@ -129,11 +133,36 @@ class FsRadar:
                 break
 
 
+def get_subdirs(path):
+    """Generator to iterate over the subdirectories under `path`.
+    The root (`path`) is the first element yielded"""
+
+    return (x[0] for x in os.walk(path))
+
+
+def get_dirs_to_watch(basedir, path_filter):
+    for path in get_subdirs(basedir):
+        if path_filter(path):
+            yield path
+
+
+def get_path_filter():
+    rules = (x for x in cfg['rules'].split('\n') if x.strip())
+    omni_filter = makePathFilter(rules)
+    return omni_filter
+
+
 if __name__ == '__main__':
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description='Run a program when a file change')
-    parser.add_argument('-i', '--include', action='append', required=True,
+    parser.add_argument('-b', '--basedir', action='store',
+                              default=os.path.abspath(os.getcwd()),
+                              help='the base directory of the files to watch')
+    parser.add_argument('-c', '--config', action='store', default=None,
+                              help='path to a config file')
+    parser.add_argument('-i', '--include', action='append', default=[],
                               help='include this path')
     parser.add_argument('-p', '--exclude-by-path', action='append', default=[],
                               help='exclude this path (include first, then exclude)')
@@ -147,7 +176,23 @@ if __name__ == '__main__':
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    paths_to_watch = list(get_paths_to_watch(args.include, args.exclude_by_path, args.exclude_by_regexp))
+    logging.debug('Arguments: {!r}'.format(args))
+
+    if args.config:
+        try:
+            cfg = load_from_toml(args.config)
+            logging.debug('Config: {!r}'.format(cfg))
+        except ConfigException as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+
+        omni_filter = makePathFilter(cfg['rules'])
+        paths_to_watch = get_dirs_to_watch(cfg['basedir'], omni_filter)
+    else:
+        paths_to_watch = get_paths_to_watch(args.include, args.exclude_by_path, args.exclude_by_regexp)
+
+    if logging.getLogger().isEnabledFor(logging.DEBUG):
+        logging.debug('Paths to watch: {!r}'.format(list(paths_to_watch)))
 
     with FsRadar() as fsr:
         for path in paths_to_watch:
