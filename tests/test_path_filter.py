@@ -1,10 +1,10 @@
 import pytest
 import unittest
 
-from src.path_filter import makePathFilter
+from src.path_filter import makePathFilter, makeDirFilter
 
 
-class PathFilterTest(unittest.TestCase):
+class MakePathFilterTest(unittest.TestCase):
     def test_empty_rules(self):
         f = makePathFilter([])
 
@@ -163,3 +163,87 @@ class PathFilterTest(unittest.TestCase):
         assert f('app/cache/include-me')
         assert f('app/cache/exclude-me.txt') is False
         assert f('app/cache/do-not-exclude-me.txt')
+
+    def test_working_directory_just_dot(self):
+        f = makePathFilter([
+            '.'
+        ])
+
+        assert f('.')
+        assert f('./')
+        assert f('foo.txt')
+        assert f('./foo.txt')
+        assert f('a/b/')
+
+    def test_working_directory_dot_slash(self):
+        f = makePathFilter([
+            '././'
+        ])
+
+        assert f('.')
+        assert f('./')
+        assert f('foo.txt')
+        assert f('./foo.txt')
+        assert f('a/b/')
+
+
+class MakeDirFilterTest(unittest.TestCase):
+    def test_empty_rules(self):
+        f = makeDirFilter([])
+
+        assert f('') is False
+        assert f('a/') is False
+
+    def test_dir_at_any_depth(self):
+        f = makeDirFilter([
+            'a/'
+        ])
+
+        assert f('a/')
+        assert f('./a')
+        assert f('b/a/')
+
+    def test_ignore_file_keep_dir(self):
+        f = makeDirFilter([
+            'a/foo.txt'
+        ])
+
+        assert f('a/')
+        assert f('./a')
+        assert f('b/a/')
+
+    def test_excluded_dir(self):
+        f = makeDirFilter([
+            'a/',
+            '!a/b/',
+            '!a/c/foo.txt'
+            '!a/d/',
+            '+a/d/baz.txt'
+        ])
+
+        assert f('a/')
+        assert f('a/b/') is False
+        assert f('a/c/')
+        assert f('a/d/')
+
+    def test_working_directory_just_dot(self):
+        f = makeDirFilter([
+            '.'
+        ])
+
+        assert f('.')
+        assert f('./')
+        assert f('foo.txt')
+        assert f('./foo.txt')
+        assert f('a/b/')
+
+    def test_working_directory_dot_slash(self):
+        f = makeDirFilter([
+            '././'
+        ])
+
+        assert f('.')
+        assert f('./')
+        assert f('foo.txt')
+        assert f('./foo.txt')
+        assert f('a/b/')
