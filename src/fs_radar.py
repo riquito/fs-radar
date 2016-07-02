@@ -125,6 +125,8 @@ class FsRadar:
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
         logging.debug('File written, not necessarily modified: {}'.format(path))
+        if self.file_filter(path):
+            logging.debug('... and it matches the rules')
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
