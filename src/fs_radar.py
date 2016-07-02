@@ -164,12 +164,14 @@ if __name__ == '__main__':
                               help='path to a config file')
     parser.add_argument('-i', '--include', action='append', default=[],
                               help='include this path')
-    parser.add_argument('-p', '--exclude-by-path', action='append', default=[],
+    parser.add_argument('-e', '--exclude', action='append', default=[],
                               help='exclude this path (include first, then exclude)')
-    parser.add_argument('-e', '--exclude-by-regexp', action='append', default=[],
-                              help='exclude paths that match these regexp')
+    parser.add_argument('-k', '--keep-excluded', action='append', default=[],
+                              help='ignore exclusion rule for this path')
     parser.add_argument('-v', '--verbose', action='store_true',
                               help='verbose output')
+    parser.add_argument('-s', '--static', action='store_true', default=False,
+                              help='Watch only the files existing at program start')
 
     args = parser.parse_args()
 
@@ -181,18 +183,34 @@ if __name__ == '__main__':
     if args.config:
         try:
             cfg = load_from_toml(args.config)
-            logging.debug('Config: {!r}'.format(cfg))
         except ConfigException as e:
             print(e, file=sys.stderr)
             sys.exit(1)
-
-        omni_filter = makePathFilter(cfg['rules'])
-        paths_to_watch = get_dirs_to_watch(cfg['basedir'], omni_filter)
     else:
-        paths_to_watch = get_paths_to_watch(args.include, args.exclude_by_path, args.exclude_by_regexp)
+        cfg = {}
+        cfg['basedir'] = args.basedir
+        cfg['rules'] = args.include + \
+            ['!' + x for x in args.exclude] + \
+            ['+' + x for x in args.keep_excluded]
+
+    logging.debug('Config: {!r}'.format(cfg))
+
+    if not os.path.exists(cfg['basedir']):
+        print('Basedir does not exists: {}'.format(cfg['basedir']), file=sys.stderr)
+        sys.exit(1)
+
+    os.chdir(cfg['basedir'])
+
+    omni_filter = makePathFilter(cfg['rules'])
+    dir_filter = makeDirFilter(cfg['rules'])
+    paths_to_watch = list(get_dirs_to_watch(cfg['basedir'], dir_filter))
 
     if logging.getLogger().isEnabledFor(logging.DEBUG):
         logging.debug('Paths to watch: {!r}'.format(list(paths_to_watch)))
+
+    if not paths_to_watch:
+        print('Nothing to watch, exiting', file=sys.stderr)
+        sys.exit(1)
 
     with FsRadar() as fsr:
         for path in paths_to_watch:
