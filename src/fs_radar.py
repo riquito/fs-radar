@@ -48,7 +48,7 @@ def get_paths_to_watch(includes, excludes=None, exclusion_regexps=None):
 
 
 class FsRadar:
-    def __init__(self):
+    def __init__(self, dir_filter, file_filter):
         self.inotify = INotify()
         self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF
         self.watch_flags = masks.ALL_EVENTS
@@ -63,6 +63,8 @@ class FsRadar:
             flags.EXCL_UNLINK
 
         self.wds = {}
+        self.dir_filter = dir_filter
+        self.file_filter = file_filter
 
     def add_watch(self, path):
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
@@ -95,13 +97,7 @@ class FsRadar:
 
         if MASK_NEW_DIR == MASK_NEW_DIR & event.mask:
             new_dir_path = join(self.wds[event.wd], event.name)
-            self.add_watch(new_dir_path)
-
-            # If files have been added immediately to the directory we
-            # missed the events, so we emit them artificially (with
-            # the risk of having some repeated events)
-            for fName in os.listdir(new_dir_path):
-                self.on_file_write(join(new_dir_path, fName))
+            self.on_new_dir(new_dir_path)
         elif flags.CLOSE_WRITE & event.mask and event.name:
             # we are watching a directory and a file inside of it has been touched
             logging.debug('Watching dir, file touched')
@@ -115,6 +111,16 @@ class FsRadar:
             path = self.wds[event.wd]
             self.rm_watch(event.wd)
             self.on_file_gone(path)
+
+    def on_new_dir(self, path):
+        if self.dir_filter(path):
+            self.add_watch(path)
+
+            # If files have been added immediately to the directory we
+            # missed the events, so we emit them artificially (with
+            # the risk of having some repeated events)
+            for fName in os.listdir(path):
+                self.on_file_write(join(new_dir_path, fName))
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
@@ -212,7 +218,7 @@ if __name__ == '__main__':
         print('Nothing to watch, exiting', file=sys.stderr)
         sys.exit(1)
 
-    with FsRadar() as fsr:
+    with FsRadar(dir_filter, omni_filter) as fsr:
         for path in paths_to_watch:
             fsr.add_watch(abspath(path))
 
