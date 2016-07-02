@@ -1,50 +1,11 @@
 #!/usr/bin/env python
 
 import os
-from re import search
-from os.path import expanduser, join, abspath
-from glob import glob
+from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
 import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
-from itertools import chain
-
-
-def expand_glob_generator(glob_path_list):
-    """Given a list of glob pattern, search for matching files.
-    Yield matching files.
-    """
-    for glob_path in glob_path_list:
-        for path in glob(expanduser(glob_path), recursive=True):
-            yield path
-
-
-def match_any(text, regexps):
-    """Return True if `text` matches any of the `regexps`, False otherwise."""
-    for regexp in regexps:
-        if search(regexp, text):
-            return True
-    else:
-        return False
-
-
-def get_paths_to_watch(includes, excludes=None, exclusion_regexps=None):
-    """Return a list of paths to watch.
-
-    includes is a list of paths to include
-    excludes is a list of paths to remove (include first, then exclude)
-    exclusion_regexps is a list of regexps, any matching path is excluded
-
-    Includes and excludes may contain the expansion variables *, **
-    """
-
-    includes = expand_glob_generator(includes or [])
-    excludes = expand_glob_generator(excludes or [])
-
-    for path in set(includes) - set(excludes):
-        if not exclusion_regexps or not match_any(path, exclusion_regexps):
-            yield path
 
 
 class FsRadar:
@@ -152,12 +113,6 @@ def get_dirs_to_watch(basedir, path_filter):
     for path in get_subdirs(basedir):
         if path_filter(path):
             yield path
-
-
-def get_path_filter():
-    rules = (x for x in cfg['rules'].split('\n') if x.strip())
-    omni_filter = makePathFilter(rules)
-    return omni_filter
 
 
 if __name__ == '__main__':
