@@ -1,2 +1,4 @@
+inotify-simple==1.0.3
 pycodestyle==2.0.0
 pytest==2.9.2
+toml==0.9.1
