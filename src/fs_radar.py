@@ -157,7 +157,7 @@ if __name__ == '__main__':
         try:
             cfg = load_from_toml(args.config)
         except ConfigException as e:
-            print(e, file=sys.stderr)
+            logging.error(e)
             sys.exit(1)
     else:
         cfg = {}
@@ -170,7 +170,7 @@ if __name__ == '__main__':
     logging.debug('Config: %r', cfg)
 
     if not os.path.exists(cfg['basedir']):
-        print('Basedir does not exists: {}'.format(cfg['basedir']), file=sys.stderr)
+        logging.error('Basedir does not exist: %s', cfg['basedir'])
         sys.exit(1)
 
     os.chdir(cfg['basedir'])
@@ -183,7 +183,7 @@ if __name__ == '__main__':
         logging.debug('Paths to watch: %r', list(paths_to_watch))
 
     if not paths_to_watch:
-        print('Nothing to watch, exiting', file=sys.stderr)
+        logging.error('Nothing to watch')
         sys.exit(1)
 
     cmd_launch_pad = CmdLaunchPad(cfg['cmd'])
