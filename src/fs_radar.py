@@ -1,15 +1,20 @@
 #!/usr/bin/env python
 
 import os
+from collections import namedtuple
 from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
 import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
+from .observer import Observer
+from .cmd_launch_pad import CmdLaunchPad
+
+FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
 
 class FsRadar:
-    def __init__(self, dir_filter, file_filter):
+    def __init__(self, dir_filter, file_filter, observer):
         self.inotify = INotify()
         self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF
         self.watch_flags = masks.ALL_EVENTS
@@ -26,6 +31,7 @@ class FsRadar:
         self.wds = {}
         self.dir_filter = dir_filter
         self.file_filter = file_filter
+        self.observer = observer
 
     def add_watch(self, path):
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
@@ -88,6 +94,7 @@ class FsRadar:
         logging.debug('File written, not necessarily modified: {}'.format(path))
         if self.file_filter(path):
             logging.debug('... and it matches the rules')
+            self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
@@ -135,6 +142,9 @@ if __name__ == '__main__':
                               help='verbose output')
     parser.add_argument('-s', '--static', action='store_true', default=False,
                               help='Watch only the files existing at program start')
+    parser.add_argument('-x', '--command', action='store',
+                              help='Execute the command when a matching file has changed.\n'
+                                   'Any occurrence of {} is replaced by the path of the file')
 
     args = parser.parse_args()
 
@@ -155,6 +165,7 @@ if __name__ == '__main__':
         cfg['rules'] = args.include + \
             ['!' + x for x in args.exclude] + \
             ['+' + x for x in args.keep_excluded]
+        cfg['cmd'] = args.command
 
     logging.debug('Config: {!r}'.format(cfg))
 
@@ -175,7 +186,12 @@ if __name__ == '__main__':
         print('Nothing to watch, exiting', file=sys.stderr)
         sys.exit(1)
 
-    with FsRadar(dir_filter, omni_filter) as fsr:
+    cmd_launch_pad = CmdLaunchPad(cfg['cmd'])
+
+    observer = Observer()
+    observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_launch_pad.fire(ev.data))
+
+    with FsRadar(dir_filter, omni_filter, observer) as fsr:
         for path in paths_to_watch:
             fsr.add_watch(abspath(path))
 
