@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
+import logging
+import chromalog
+from chromalog.mark.helpers.simple import important, success, error
 import os
 from collections import namedtuple
 from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
-import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
 from .observer import Observer
@@ -37,10 +39,10 @@ class FsRadar:
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
             wd = self.inotify.add_watch(path, self.watch_flags)
             self.wds[wd] = path
-            logging.debug('Start watching {}'.format(path))
+            logging.debug('Watch %s', important(path))
 
     def rm_watch(self, wd):
-        logging.debug('Stop Watching {}'.format(self.wds[wd]))
+        logging.debug('Stop Watching %s', important(self.wds[wd]))
         inotify.rm_watch(self.wds[wd])
         delete(self.wds[wd])
 
@@ -58,9 +60,9 @@ class FsRadar:
         MASK_NEW_DIR = flags.CREATE | flags.ISDIR
 
         if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug('New event: {}'.format(event))
+            logging.debug('New event: %r', important(event))
             for flag in flags.from_mask(event.mask):
-                logging.debug('-> flag: {}'.format(flag))
+                logging.debug('-> flag: %s', flag)
 
         if MASK_NEW_DIR == MASK_NEW_DIR & event.mask:
             new_dir_path = join(self.wds[event.wd], event.name)
@@ -91,14 +93,14 @@ class FsRadar:
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logging.debug('File written, not necessarily modified: {}'.format(path))
+        logging.debug('File written, not necessarily modified: %s', important(path))
         if self.file_filter(path):
             logging.debug('... and it matches the rules')
             self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
-        logging.debug('File gone: {}'.format(path))
+        logging.debug('File gone: %s', path)
 
     def start(self, forever=False):
         while True:
@@ -148,16 +150,24 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    log_config = {
+        'format': '%(message)s',
+        'level': logging.INFO
+    }
 
-    logging.debug('Arguments: {!r}'.format(args))
+    if args.verbose:
+        log_config['level'] = logging.DEBUG
+        log_config['format'] = '%(levelname)s:%(name)s:%(message)s'
+
+    chromalog.basicConfig(**log_config)
+
+    logging.debug('Arguments: %r', args)
 
     if args.config:
         try:
             cfg = load_from_toml(args.config)
         except ConfigException as e:
-            print(e, file=sys.stderr)
+            logging.error(e)
             sys.exit(1)
     else:
         cfg = {}
@@ -167,10 +177,10 @@ if __name__ == '__main__':
             ['+' + x for x in args.keep_excluded]
         cfg['cmd'] = args.command
 
-    logging.debug('Config: {!r}'.format(cfg))
+    logging.debug('Config: %r', cfg)
 
     if not os.path.exists(cfg['basedir']):
-        print('Basedir does not exists: {}'.format(cfg['basedir']), file=sys.stderr)
+        logging.error('Basedir does not exist: %s', important(cfg['basedir']))
         sys.exit(1)
 
     os.chdir(cfg['basedir'])
@@ -180,10 +190,10 @@ if __name__ == '__main__':
     paths_to_watch = list(get_dirs_to_watch(cfg['basedir'], dir_filter))
 
     if logging.getLogger().isEnabledFor(logging.DEBUG):
-        logging.debug('Paths to watch: {!r}'.format(list(paths_to_watch)))
+        logging.debug('Paths to watch: %r', list(paths_to_watch))
 
     if not paths_to_watch:
-        print('Nothing to watch, exiting', file=sys.stderr)
+        logging.error('Nothing to watch')
         sys.exit(1)
 
     cmd_launch_pad = CmdLaunchPad(cfg['cmd'])
