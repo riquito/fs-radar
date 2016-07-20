@@ -8,6 +8,7 @@ import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
 from .observer import Observer
+from .cmd_launch_pad import CmdLaunchPad
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
@@ -141,6 +142,9 @@ if __name__ == '__main__':
                               help='verbose output')
     parser.add_argument('-s', '--static', action='store_true', default=False,
                               help='Watch only the files existing at program start')
+    parser.add_argument('-x', '--command', action='store',
+                              help='Execute the command when a matching file has changed.\n'
+                                   'Any occurrence of {} is replaced by the path of the file')
 
     args = parser.parse_args()
 
@@ -161,6 +165,7 @@ if __name__ == '__main__':
         cfg['rules'] = args.include + \
             ['!' + x for x in args.exclude] + \
             ['+' + x for x in args.keep_excluded]
+        cfg['cmd'] = args.command
 
     logging.debug('Config: {!r}'.format(cfg))
 
@@ -181,8 +186,10 @@ if __name__ == '__main__':
         print('Nothing to watch, exiting', file=sys.stderr)
         sys.exit(1)
 
+    cmd_launch_pad = CmdLaunchPad(cfg['cmd'])
 
     observer = Observer()
+    observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_launch_pad.fire(ev.data))
 
     with FsRadar(dir_filter, omni_filter, observer) as fsr:
         for path in paths_to_watch:
