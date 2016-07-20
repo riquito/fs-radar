@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
+import logging
+import chromalog
+from chromalog.mark.helpers.simple import important, success, error
 import os
 from collections import namedtuple
 from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
-import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
 from .observer import Observer
@@ -37,10 +39,10 @@ class FsRadar:
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
             wd = self.inotify.add_watch(path, self.watch_flags)
             self.wds[wd] = path
-            logging.debug('Watch %s', path)
+            logging.debug('Watch %s', important(path))
 
     def rm_watch(self, wd):
-        logging.debug('Stop Watching %s', self.wds[wd])
+        logging.debug('Stop Watching %s', important(self.wds[wd]))
         inotify.rm_watch(self.wds[wd])
         delete(self.wds[wd])
 
@@ -58,7 +60,7 @@ class FsRadar:
         MASK_NEW_DIR = flags.CREATE | flags.ISDIR
 
         if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug('New event: %r', event)
+            logging.debug('New event: %r', important(event))
             for flag in flags.from_mask(event.mask):
                 logging.debug('-> flag: %s', flag)
 
@@ -91,7 +93,7 @@ class FsRadar:
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logging.debug('File written, not necessarily modified: %s', path)
+        logging.debug('File written, not necessarily modified: %s', important(path))
         if self.file_filter(path):
             logging.debug('... and it matches the rules')
             self.observer.notify(FsRadarEvent.FILE_MATCH, path)
@@ -148,8 +150,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    log_config = {
+        'format': '%(message)s',
+        'level': logging.INFO
+    }
+
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        log_config['level'] = logging.DEBUG
+        log_config['format'] = '%(levelname)s:%(name)s:%(message)s'
+
+    chromalog.basicConfig(**log_config)
 
     logging.debug('Arguments: %r', args)
 
@@ -170,7 +180,7 @@ if __name__ == '__main__':
     logging.debug('Config: %r', cfg)
 
     if not os.path.exists(cfg['basedir']):
-        logging.error('Basedir does not exist: %s', cfg['basedir'])
+        logging.error('Basedir does not exist: %s', important(cfg['basedir']))
         sys.exit(1)
 
     os.chdir(cfg['basedir'])
