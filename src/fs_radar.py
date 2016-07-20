@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 
 import os
+from collections import namedtuple
 from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
 import logging
 from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
+from .observer import Observer
+
+FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
 
 class FsRadar:
-    def __init__(self, dir_filter, file_filter):
+    def __init__(self, dir_filter, file_filter, observer):
         self.inotify = INotify()
         self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF
         self.watch_flags = masks.ALL_EVENTS
@@ -26,6 +30,7 @@ class FsRadar:
         self.wds = {}
         self.dir_filter = dir_filter
         self.file_filter = file_filter
+        self.observer = observer
 
     def add_watch(self, path):
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
@@ -88,6 +93,7 @@ class FsRadar:
         logging.debug('File written, not necessarily modified: {}'.format(path))
         if self.file_filter(path):
             logging.debug('... and it matches the rules')
+            self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
@@ -175,7 +181,10 @@ if __name__ == '__main__':
         print('Nothing to watch, exiting', file=sys.stderr)
         sys.exit(1)
 
-    with FsRadar(dir_filter, omni_filter) as fsr:
+
+    observer = Observer()
+
+    with FsRadar(dir_filter, omni_filter, observer) as fsr:
         for path in paths_to_watch:
             fsr.add_watch(abspath(path))
 
