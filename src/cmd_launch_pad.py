@@ -20,12 +20,12 @@ class CmdLaunchPad:
         '''Run the command after replacing every occurrence
         of {} with `parameter`'''
         cmd = self.cmd_template.replace('{}', parameter)
-        logging.info('Run <{}>'.format(cmd))
+        logging.info('Run <%s>', cmd)
 
         if not self.dry_run:
             # XXX this is blocking
             status, output = subprocess.getstatusoutput(cmd)
             if status:
-                logger.error('Error: {}'.format(output))
+                logger.error('Error: %s', output)
             else:
-                logger.info('Output: {}'.format(output))
+                logger.info('Output: %s', output)
