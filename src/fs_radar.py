@@ -14,6 +14,7 @@ from .cmd_launch_pad import CmdLaunchPad
 from multiprocessing import Queue
 import threading
 from select import select
+from src.logging_config import BASE, VERBOSE
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
@@ -154,16 +155,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    log_config = {
-        'format': '%(message)s',
-        'level': logging.INFO
-    }
-
     if args.verbose:
-        log_config['level'] = logging.DEBUG
-        log_config['format'] = '%(levelname)s:%(name)s:%(message)s'
+        log_conf = VERBOSE
+    else:
+        log_conf = BASE
 
-    chromalog.basicConfig(**log_config)
+    chromalog.basicConfig(**log_conf)
 
     logger.debug('Arguments: %r', args)
 
