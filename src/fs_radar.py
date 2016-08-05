@@ -11,6 +11,9 @@ from .path_filter import makePathFilter, makeDirFilter
 from .config import load_from_toml, ConfigException
 from .observer import Observer
 from .cmd_launch_pad import CmdLaunchPad
+from multiprocessing import Queue
+import threading
+from select import select
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
@@ -102,13 +105,12 @@ class FsRadar:
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
         logging.debug('File gone: %s', path)
 
-    def start(self, forever=False):
+    def run_forever(self):
         while True:
-            for event in self.inotify.read(read_delay=30):
+            logging.debug('Wait for file changes')
+            for event in self.inotify.read(read_delay=30, timeout=2000):
+                logging.debug('new event %r', event)
                 self.on_watch_event(event)
-
-            if not forever:
-                break
 
 
 def get_subdirs(path):
@@ -196,16 +198,22 @@ if __name__ == '__main__':
         logging.error('Nothing to watch')
         sys.exit(1)
 
-    cmd_launch_pad = CmdLaunchPad(cfg['cmd'])
+    cmd_queue_in = Queue()
+    end_event = threading.Event()
+    cmd_launch_pad = CmdLaunchPad(cfg['cmd'],
+                                  queue_in=cmd_queue_in,
+                                  end_event=end_event)
 
     observer = Observer()
-    observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_launch_pad.fire(ev.data))
+    observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_queue_in.put(ev.data))
 
     with FsRadar(dir_filter, omni_filter, observer) as fsr:
         for path in paths_to_watch:
             fsr.add_watch(abspath(path))
 
         try:
-            fsr.start(forever=True)
+            cmd_launch_pad.start()
+            fsr.run_forever()
         except KeyboardInterrupt:
-            pass
+            end_event.set()
+            cmd_launch_pad.join()
