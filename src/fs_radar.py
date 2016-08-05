@@ -14,7 +14,7 @@ from .cmd_launch_pad import CmdLaunchPad
 from multiprocessing import Queue
 import threading
 from select import select
-from src.logging_config import BASE, VERBOSE
+from src.logging_config import BASE, VERBOSE, QUIET
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
@@ -152,11 +152,15 @@ if __name__ == '__main__':
     parser.add_argument('-x', '--command', action='store',
                               help='Execute the command when a matching file has changed.\n'
                                    'Any occurrence of {} is replaced by the path of the file')
+    parser.add_argument('-q', '--quiet', action='store_true', default=False,
+                              help='Keep output to a minimum')
 
     args = parser.parse_args()
 
     if args.verbose:
         log_conf = VERBOSE
+    elif args.quiet:
+        log_conf = QUIET
     else:
         log_conf = BASE
 
