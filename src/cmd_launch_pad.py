@@ -119,15 +119,15 @@ class CmdLaunchPad(Thread):
 
 
 def run_command(cmd):
-    if isinstance(cmd, str):
-        args = shlex.split(cmd)
-    else:
-        args = cmd
+    '''Spawn a blocking process to run `cmd`
 
+    @param string cmd the command to run
+    @return tuple (exit status code, output as a string)
+    '''
     exit_status = 0
 
     try:
-        output_b = subprocess.check_output(args, stderr=subprocess.STDOUT, shell=True)
+        output_b = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
     except subprocess.CalledProcessError as e:
         output_b = e.output
         exit_status = e.returncode
@@ -138,6 +138,14 @@ def run_command(cmd):
 
 
 def run_command_with_queue(cmd, queue):
+    '''Spawn a blocking process to run `cmd`, set his result in the `queue`.
+
+    The queue will receive a tuple (exit status code, cmd, output as a string)
+    when the process end.
+
+    @param string cmd the command to run
+    @param Queue queue where to put the data when the process end
+    '''
     exit_status, output = run_command(cmd)
     queue.put((exit_status, cmd, output))
     queue.close()
