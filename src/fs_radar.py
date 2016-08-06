@@ -14,8 +14,11 @@ from .cmd_launch_pad import CmdLaunchPad
 from multiprocessing import Queue
 import threading
 from select import select
+from src.logging_config import BASE, VERBOSE, QUIET
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
+
+logger = logging.getLogger(__spec__.name)
 
 
 class FsRadar:
@@ -42,10 +45,10 @@ class FsRadar:
         if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
             wd = self.inotify.add_watch(path, self.watch_flags)
             self.wds[wd] = path
-            logging.debug('Watch %s', important(path))
+            logger.debug('Watch %s', important(path))
 
     def rm_watch(self, wd):
-        logging.debug('Stop Watching %s', important(self.wds[wd]))
+        logger.debug('Stop Watching %s', important(self.wds[wd]))
         inotify.rm_watch(self.wds[wd])
         delete(self.wds[wd])
 
@@ -56,27 +59,27 @@ class FsRadar:
         self.close()
 
     def close(self):
-        logging.debug('Close inotify descriptor')
+        logger.debug('Close inotify descriptor')
         return self.inotify.close()
 
     def on_watch_event(self, event):
         MASK_NEW_DIR = flags.CREATE | flags.ISDIR
 
         if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug('New event: %r', important(event))
+            logger.debug('New event: %r', event)
             for flag in flags.from_mask(event.mask):
-                logging.debug('-> flag: %s', flag)
+                logger.debug('-> flag: %s', flag)
 
         if MASK_NEW_DIR == MASK_NEW_DIR & event.mask:
             new_dir_path = join(self.wds[event.wd], event.name)
             self.on_new_dir(new_dir_path)
         elif flags.CLOSE_WRITE & event.mask and event.name:
             # we are watching a directory and a file inside of it has been touched
-            logging.debug('Watching dir, file touched')
+            logger.debug('Watching dir, file touched')
             self.on_file_write(join(self.wds[event.wd], event.name))
         elif flags.CLOSE_WRITE & event.mask and not event.name:
             # we are watching a file
-            logging.debug('Watching file, file touched')
+            logger.debug('Watching file, file touched')
             self.on_file_write(self.wds[event.wd])
         elif flags.IGNORED & event.mask:
             # file/directory removed/moved/unmounted
@@ -96,20 +99,18 @@ class FsRadar:
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logging.debug('File written, not necessarily modified: %s', important(path))
+        logger.debug('File written (not necessarily modified): %s', important(path))
         if self.file_filter(path):
-            logging.debug('... and it matches the rules')
+            logger.info('Watched file written: %s', path)
             self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
-        logging.debug('File gone: %s', path)
+        logger.debug('File gone: %s', path)
 
     def run_forever(self):
         while True:
-            logging.debug('Wait for file changes')
             for event in self.inotify.read(read_delay=30, timeout=2000):
-                logging.debug('new event %r', event)
                 self.on_watch_event(event)
 
 
@@ -149,27 +150,27 @@ if __name__ == '__main__':
     parser.add_argument('-x', '--command', action='store',
                               help='Execute the command when a matching file has changed.\n'
                                    'Any occurrence of {} is replaced by the path of the file')
+    parser.add_argument('-q', '--quiet', action='store_true', default=False,
+                              help='Keep output to a minimum')
 
     args = parser.parse_args()
 
-    log_config = {
-        'format': '%(message)s',
-        'level': logging.INFO
-    }
-
     if args.verbose:
-        log_config['level'] = logging.DEBUG
-        log_config['format'] = '%(levelname)s:%(name)s:%(message)s'
+        log_conf = VERBOSE
+    elif args.quiet:
+        log_conf = QUIET
+    else:
+        log_conf = BASE
 
-    chromalog.basicConfig(**log_config)
+    chromalog.basicConfig(**log_conf)
 
-    logging.debug('Arguments: %r', args)
+    logger.debug('Arguments: %r', args)
 
     if args.config:
         try:
             cfg = load_from_toml(args.config)
         except ConfigException as e:
-            logging.error(e)
+            logger.error(e)
             sys.exit(1)
     else:
         cfg = {}
@@ -179,10 +180,10 @@ if __name__ == '__main__':
             ['+' + x for x in args.keep_excluded]
         cfg['cmd'] = args.command
 
-    logging.debug('Config: %r', cfg)
+    logger.debug('Config: %r', cfg)
 
     if not os.path.exists(cfg['basedir']):
-        logging.error('Basedir does not exist: %s', important(cfg['basedir']))
+        logger.error('Basedir does not exist: %s', important(cfg['basedir']))
         sys.exit(1)
 
     os.chdir(cfg['basedir'])
@@ -192,10 +193,10 @@ if __name__ == '__main__':
     paths_to_watch = list(get_dirs_to_watch(cfg['basedir'], dir_filter))
 
     if logging.getLogger().isEnabledFor(logging.DEBUG):
-        logging.debug('Paths to watch: %r', list(paths_to_watch))
+        logger.debug('Paths to watch: %r', list(paths_to_watch))
 
     if not paths_to_watch:
-        logging.error('Nothing to watch')
+        logger.error('Nothing to watch')
         sys.exit(1)
 
     cmd_queue_in = Queue()
@@ -217,3 +218,4 @@ if __name__ == '__main__':
         except KeyboardInterrupt:
             end_event.set()
             cmd_launch_pad.join()
+            logging.shutdown()
