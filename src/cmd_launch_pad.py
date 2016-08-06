@@ -54,8 +54,6 @@ class CmdLaunchPad(Thread):
 
         logger.debug('Run cmd launch pad')
         while True:
-            logger.debug('Waiting for a new request to run the command')
-
             try:
                 exit_status, cmd, output = self.queue_process.get(block=False)
                 if exit_status == 0:

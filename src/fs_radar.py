@@ -66,7 +66,7 @@ class FsRadar:
         MASK_NEW_DIR = flags.CREATE | flags.ISDIR
 
         if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logger.debug('New event: %r', important(event))
+            logger.debug('New event: %r', event)
             for flag in flags.from_mask(event.mask):
                 logger.debug('-> flag: %s', flag)
 
@@ -99,9 +99,9 @@ class FsRadar:
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logger.debug('File written, not necessarily modified: %s', important(path))
+        logger.debug('File written (not necessarily modified): %s', important(path))
         if self.file_filter(path):
-            logger.debug('... and it matches the rules')
+            logger.info('Watched file written: %s', path)
             self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
@@ -110,9 +110,7 @@ class FsRadar:
 
     def run_forever(self):
         while True:
-            logger.debug('Wait for file changes')
             for event in self.inotify.read(read_delay=30, timeout=2000):
-                logger.debug('new event %r', event)
                 self.on_watch_event(event)
 
 
