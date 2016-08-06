@@ -220,3 +220,4 @@ if __name__ == '__main__':
         except KeyboardInterrupt:
             end_event.set()
             cmd_launch_pad.join()
+            logging.shutdown()
