@@ -88,8 +88,12 @@ class CmdLaunchPad(Thread):
                 # nor discard the new event: let's wait for the process to end.
 
                 time_left = self.get_seconds_until_process_timeout()
-                logger.debug('Wait %d seconds for the process to time out', time_left)
-                sleep(time_left)
+                logger.debug('Wait at most %d seconds for the process to time out', time_left)
+                while time_left > 0:
+                    sleep(1)
+                    time_left -= 1
+                    if not self.is_process_alive():
+                        break
 
                 if self.p.is_alive():
                     logger.warn('Process timed out')
