@@ -46,9 +46,12 @@ class CmdLaunchPad(Thread):
             logger.debug('Waiting for a new request to run the command')
 
             try:
-                exit_status, output = self.queue_process.get(block=False)
-                logger.debug('Process ended with exit_status %d', exit_status)
-                logger.info('Process output was: %s', output)
+                exit_status, cmd, output = self.queue_process.get(block=False)
+                if exit_status == 0:
+                    logger.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
+                else:
+                    logger.warn('Process ended:\ncommand was: %s\nexit status: %s, utput (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
+
             except EmptyException as e:
                 pass
 
@@ -123,5 +126,5 @@ def run_command(cmd):
 
 def run_command_with_queue(cmd, queue):
     exit_status, output = run_command(cmd)
-    queue.put((exit_status, output))
+    queue.put((exit_status, cmd, output))
     queue.close()
