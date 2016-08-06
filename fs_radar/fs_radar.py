@@ -7,14 +7,14 @@ import os
 from collections import namedtuple
 from os.path import join, abspath
 from inotify_simple import INotify, flags, masks
-from .path_filter import makePathFilter, makeDirFilter
-from .config import load_from_toml, ConfigException
-from .observer import Observer
-from .cmd_launch_pad import CmdLaunchPad
+from fs_radar.path_filter import makePathFilter, makeDirFilter
+from fs_radar.config import load_from_toml, ConfigException
+from fs_radar.observer import Observer
+from fs_radar.cmd_launch_pad import CmdLaunchPad
 from multiprocessing import Queue
 import threading
 from select import select
-from src.logging_config import BASE, VERBOSE, QUIET
+from fs_radar.logging_config import BASE, VERBOSE, QUIET
 
 FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
