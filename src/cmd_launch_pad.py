@@ -30,17 +30,28 @@ class CmdLaunchPad(Thread):
         self.cmd_template = self._normalize_cmd_substitution_token(cmd_template)
 
     def is_process_alive(self):
-        return self.p and self.p.is_alive()
+        '''Is the process still running?
+
+        @return bool whether the process is running or not
+        '''
+        return bool(self.p and self.p.is_alive())
 
     def terminate_process(self):
+        '''Kill the process sending to it a SIGTERM signal.
+
+        Also reset process related variables.'''
         self.p.terminate()
         self.p = None
         self.process_start_time = 0
 
     def get_seconds_until_process_timeout(self):
+        '''Return the number of seconds remaining until the process
+        is to be considered as timed out.'''
         return max(0, self.process_start_time + self.options['timeout'] - time())
 
     def run(self):
+        '''Run an infinite loop that wait for requests to run a process.'''
+
         logger.debug('Run cmd launch pad')
         while True:
             logger.debug('Waiting for a new request to run the command')
