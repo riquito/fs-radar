@@ -12,6 +12,7 @@ FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
 
 
 class FsRadar:
+
     def __init__(self, dir_filter, file_filter, observer):
         self.inotify = INotify()
         self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF

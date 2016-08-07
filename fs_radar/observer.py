@@ -2,12 +2,14 @@ from collections import defaultdict
 
 
 class Event:
+
     def __init__(self, key, data):
         self.key = key
         self.data = data
 
 
 class Observer:
+
     def __init__(self):
         self.subscribers = defaultdict(list)
 
