@@ -1,137 +1,71 @@
 #!/usr/bin/env python
 
+import argparse
 import logging
-import chromalog
-from chromalog.mark.helpers.simple import important, success, error
-import os
-from collections import namedtuple
-from os.path import join, abspath
-from inotify_simple import INotify, flags, masks
-from fs_radar.path_filter import makePathFilter, makeDirFilter
-from fs_radar.config import load_from_toml, ConfigException
-from fs_radar.observer import Observer
-from fs_radar.cmd_launch_pad import CmdLaunchPad
 from multiprocessing import Queue
+import os
+import sys
 import threading
-from select import select
-from fs_radar.logging_config import BASE, VERBOSE, QUIET
 
-FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
+import chromalog
+
+from fs_radar import FsRadar, FsRadarEvent
+from fs_radar.cmd_launch_pad import CmdLaunchPad
+from fs_radar.config import load_from_toml, ConfigException
+from fs_radar.logging_config import BASE, VERBOSE, QUIET
+from fs_radar.observer import Observer
+from fs_radar.path_filter import makePathFilter, makeDirFilter
 
 logger = logging.getLogger(__spec__.name)
 
 
-class FsRadar:
-    def __init__(self, dir_filter, file_filter, observer):
-        self.inotify = INotify()
-        self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF
-        self.watch_flags = masks.ALL_EVENTS
-        self.watch_flags = \
-            flags.CREATE | \
-            flags.DELETE | \
-            flags.DELETE_SELF | \
-            flags.CLOSE_WRITE | \
-            flags.MOVE_SELF | \
-            flags.MOVED_FROM | \
-            flags.MOVED_TO | \
-            flags.EXCL_UNLINK
+class FsRadarException(Exception):
+    pass
 
-        self.wds = {}
-        self.dir_filter = dir_filter
-        self.file_filter = file_filter
-        self.observer = observer
 
-    def add_watch(self, path):
-        if not ((self.watch_flags & flags.ONLYDIR) and not os.path.isdir(path)):
-            wd = self.inotify.add_watch(path, self.watch_flags)
-            self.wds[wd] = path
-            logger.debug('Watch %s', important(path))
+class NoPathsToWatchException(FsRadarException):
+    pass
 
-    def rm_watch(self, wd):
-        logger.debug('Stop Watching %s', important(self.wds[wd]))
-        inotify.rm_watch(self.wds[wd])
-        delete(self.wds[wd])
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def close(self):
-        logger.debug('Close inotify descriptor')
-        return self.inotify.close()
-
-    def on_watch_event(self, event):
-        MASK_NEW_DIR = flags.CREATE | flags.ISDIR
-
-        if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logger.debug('New event: %r', event)
-            for flag in flags.from_mask(event.mask):
-                logger.debug('-> flag: %s', flag)
-
-        if MASK_NEW_DIR == MASK_NEW_DIR & event.mask:
-            new_dir_path = join(self.wds[event.wd], event.name)
-            self.on_new_dir(new_dir_path)
-        elif flags.CLOSE_WRITE & event.mask and event.name:
-            # we are watching a directory and a file inside of it has been touched
-            logger.debug('Watching dir, file touched')
-            self.on_file_write(join(self.wds[event.wd], event.name))
-        elif flags.CLOSE_WRITE & event.mask and not event.name:
-            # we are watching a file
-            logger.debug('Watching file, file touched')
-            self.on_file_write(self.wds[event.wd])
-        elif flags.IGNORED & event.mask:
-            # file/directory removed/moved/unmounted
-            path = self.wds[event.wd]
-            self.rm_watch(event.wd)
-            self.on_file_gone(path)
-
-    def on_new_dir(self, path):
-        if self.dir_filter(path):
-            self.add_watch(path)
-
-            # If files have been added immediately to the directory we
-            # missed the events, so we emit them artificially (with
-            # the risk of having some repeated events)
-            for fName in os.listdir(path):
-                self.on_file_write(join(new_dir_path, fName))
-
-    def on_file_write(self, path):
-        '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logger.debug('File written (not necessarily modified): %s', important(path))
-        if self.file_filter(path):
-            logger.info('Watched file written: %s', path)
-            self.observer.notify(FsRadarEvent.FILE_MATCH, path)
-
-    def on_file_gone(self, path):
-        '''The file/directory at `path` was either unlinked, moved or unmounted'''
-        logger.debug('File gone: %s', path)
-
-    def run_forever(self):
-        while True:
-            for event in self.inotify.read(read_delay=30, timeout=2000):
-                self.on_watch_event(event)
+class BaseDirNotExistsExcpetion(FsRadarException):
+    pass
 
 
 def get_subdirs(path):
-    """Generator to iterate over the subdirectories under `path`.
-    The root (`path`) is the first element yielded"""
+    '''Generator to iterate over the subdirectories under `path`.
+    The root (`path`) is the first element yielded'''
 
     return (x[0] for x in os.walk(path))
 
 
 def get_dirs_to_watch(basedir, path_filter):
+    '''Generator to iterate over all the directories that are matched
+    by `path_filter`'''
+
     for path in get_subdirs(basedir):
         if path_filter(path):
             yield path
 
 
-if __name__ == '__main__':
-    import argparse
-    import sys
+def get_config(args):
+    '''Get the watch configuration for FsRadar'''
 
-    parser = argparse.ArgumentParser(description='Run a program when a file change')
+    if args.config:
+        return load_from_toml(args.config)
+    else:
+        cfg = {}
+        cfg['basedir'] = args.basedir
+        cfg['rules'] = args.include + \
+            ['!' + x for x in args.exclude] + \
+            ['+' + x for x in args.keep_excluded]
+        cfg['cmd'] = args.command
+        return cfg
+
+
+def get_args_parser():
+    '''Create the argument parser'''
+
+    parser = argparse.ArgumentParser(prog='fs_radar', description='Run a program when a file change')
     parser.add_argument('-b', '--basedir', action='store',
                               default=os.path.abspath(os.getcwd()),
                               help='the base directory of the files to watch')
@@ -152,8 +86,11 @@ if __name__ == '__main__':
                                    'Any occurrence of {} is replaced by the path of the file')
     parser.add_argument('-q', '--quiet', action='store_true', default=False,
                               help='Keep output to a minimum')
+    return parser
 
-    args = parser.parse_args()
+
+def setup_logs(args):
+    '''Load the correct logs' configuration'''
 
     if args.verbose:
         log_conf = VERBOSE
@@ -164,28 +101,13 @@ if __name__ == '__main__':
 
     chromalog.basicConfig(**log_conf)
 
-    logger.debug('Arguments: %r', args)
 
-    if args.config:
-        try:
-            cfg = load_from_toml(args.config)
-        except ConfigException as e:
-            logger.error(e)
-            sys.exit(1)
-    else:
-        cfg = {}
-        cfg['basedir'] = args.basedir
-        cfg['rules'] = args.include + \
-            ['!' + x for x in args.exclude] + \
-            ['+' + x for x in args.keep_excluded]
-        cfg['cmd'] = args.command
+def start(cfg):
+    '''Start the program.
 
-    logger.debug('Config: %r', cfg)
-
-    if not os.path.exists(cfg['basedir']):
-        logger.error('Basedir does not exist: %s', important(cfg['basedir']))
-        sys.exit(1)
-
+    This function will continue to run until an exception is raised
+    (commonly KeyboardInterrupt via CTRL-C).
+    '''
     os.chdir(cfg['basedir'])
 
     omni_filter = makePathFilter(cfg['rules'])
@@ -196,26 +118,50 @@ if __name__ == '__main__':
         logger.debug('Paths to watch: %r', list(paths_to_watch))
 
     if not paths_to_watch:
-        logger.error('Nothing to watch')
-        sys.exit(1)
+        raise NoPathsToWatchException('Nothing to watch')
 
     cmd_queue_in = Queue()
     end_event = threading.Event()
-    cmd_launch_pad = CmdLaunchPad(cfg['cmd'],
-                                  queue_in=cmd_queue_in,
-                                  end_event=end_event)
+    cmd_launch_pad = CmdLaunchPad(cfg['cmd'], queue_in=cmd_queue_in, end_event=end_event)
 
     observer = Observer()
     observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_queue_in.put(ev.data))
 
     with FsRadar(dir_filter, omni_filter, observer) as fsr:
         for path in paths_to_watch:
-            fsr.add_watch(abspath(path))
+            fsr.add_watch(os.path.abspath(path))
 
         try:
             cmd_launch_pad.start()
             fsr.run_forever()
-        except KeyboardInterrupt:
+        finally:
             end_event.set()
             cmd_launch_pad.join()
-            logging.shutdown()
+
+
+def main(argv):
+    parser = get_args_parser()
+    args = parser.parse_args(argv[1:])
+
+    setup_logs(args)
+    logger.debug('Arguments: %r', args)
+
+    cfg = get_config(args)
+    logger.debug('Config: %r', cfg)
+
+    if not os.path.exists(cfg['basedir']):
+        raise BaseDirNotExistsExcpetion(cfg['basedir'])
+
+    start(cfg)
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        logger.error(e)
+        sys.exit(1)
+    finally:
+        logging.shutdown()
