@@ -13,8 +13,13 @@ while read st file; do
 
     # run lint only on python files
     if [[ "$file" =~ \.py$ ]]; then
-        ${PROJECT_ROOT}/.env/bin/python ${PROJECT_ROOT}/.env/bin/pycodestyle "$file"
+        autopep8_output=$(${PROJECT_ROOT}/.env/bin/python ${PROJECT_ROOT}/.env/bin/autopep8 --in-place -aa -vv "$file" 2>&1)
+
         if [[ $? -ne 0 ]]; then
+            status=1
+        elif [[ "$(printf "$autopep8_output" | grep -E '[1-9][0-9]* issue' -o)" != "" ]]; then
+            printf "$autopep8_output"
+            echo
             status=1
         fi
     fi
