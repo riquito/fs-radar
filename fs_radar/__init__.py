@@ -3,8 +3,8 @@ import logging
 import os
 from os.path import join
 
-from inotify_simple import INotify, flags, masks
 from chromalog.mark.helpers.simple import important
+from inotify_simple import INotify, flags, masks
 
 logger = logging.getLogger(__spec__.name)
 

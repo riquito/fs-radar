@@ -1,10 +1,9 @@
 import logging
-import re
-import subprocess
 from multiprocessing import Queue, Process
 from queue import Empty as EmptyException
+import re
+import subprocess
 from threading import Thread
-import shlex
 from time import time, sleep
 
 from chromalog.mark.helpers.simple import success, error, important
