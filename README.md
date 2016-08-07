@@ -11,6 +11,11 @@ How to run
 python -m fs_radar -c config.toml
 ```
 
+Development
+-----------
+
+Run `provision.sh` to install the required scripts (e.g. autopep8 linter)
+
 License
 -------
 
