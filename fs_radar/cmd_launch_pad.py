@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class CmdLaunchPad(Thread):
+
     def __init__(self, cmd_template, queue_in, options=None, end_event=None):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{

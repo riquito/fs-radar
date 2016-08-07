@@ -1,7 +1,9 @@
+autopep8==1.2.4
 chromalog==1.0.5
 colorama==0.3.7
 future==0.15.2
 inotify-simple==1.0.3
+pep8==1.7.0
 py==1.4.31
 pycodestyle==2.0.0
 pytest==2.9.2

@@ -21,12 +21,10 @@ def ruleToRegexp(rule):
     if rule == '.':
         return '.*'
 
-    return ('(.*/)?' if any_depth else '^(\\./)?') + \
-        re.escape(
-             # substitute multiple asterisks with a single *
-             re.sub('\*+', '*', rule)
-        ).replace('\\*', '.*?') + \
-        ('(/|$)' if is_dir else '$')
+    return ('(.*/)?' if any_depth else '^(\\./)?') + re.escape(
+        # substitute multiple asterisks with a single *
+        re.sub('\*+', '*', rule)
+    ).replace('\\*', '.*?') + ('(/|$)' if is_dir else '$')
 
 
 def makePathFilter(rules):
