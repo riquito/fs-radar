@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 import argparse
+from itertools import chain
 import logging
 from multiprocessing import Queue
 import os
+from os.path import relpath
 import sys
 import threading
 
@@ -15,6 +17,7 @@ from fs_radar.config import load_from_toml, ConfigException
 from fs_radar.logging_config import BASE, VERBOSE, QUIET
 from fs_radar.observer import Observer
 from fs_radar.path_filter import makePathFilter, makeDirFilter
+from fs_radar.picky_eater import PickyEater, bulk_consume
 
 logger = logging.getLogger(__spec__.name)
 
@@ -53,13 +56,25 @@ def get_config(args):
     if args.config:
         return load_from_toml(args.config)
     else:
-        cfg = {}
-        cfg['basedir'] = args.basedir
-        cfg['rules'] = args.include + \
+        cfg = {'fs_radar': {'basedir': ''}, 'group': {'default': {}}}
+        cfg['fs_radar']['basedir'] = args.basedir
+        cfg['group']['default']['rules'] = args.include + \
             ['!' + x for x in args.exclude] + \
             ['+' + x for x in args.keep_excluded]
-        cfg['cmd'] = args.command
+        cfg['group']['default']['cmd'] = args.command or ''
         return cfg
+
+
+def get_dir_filter(groups):
+    return makeDirFilter(sorted(set(chain(
+        *(d['rules'] for d in groups.values())
+    ))))
+
+
+def make_launch_pads_notifier(picky_launch_pads, basedir):
+    '''Request a command execution from each launch_pad whose
+    filters match `path`'''
+    return lambda ev: bulk_consume(picky_launch_pads, relpath(ev.data, basedir))
 
 
 def get_args_parser():
@@ -102,41 +117,58 @@ def setup_logs(args):
     chromalog.basicConfig(**log_conf)
 
 
+def get_pairs_filter2launch_pads(cfg):
+    '''Generate a list o pairs (path_filter, launch pad)'''
+    for group in cfg['group'].values():
+        path_filter = makePathFilter(group['rules'])
+        lp = CmdLaunchPad(group['cmd'])
+        yield (path_filter, lp)
+
+
 def start(cfg):
     '''Start the program.
 
     This function will continue to run until an exception is raised
     (commonly KeyboardInterrupt via CTRL-C).
     '''
-    os.chdir(cfg['basedir'])
+    basedir = cfg['fs_radar']['basedir']
+    os.chdir(basedir)
 
-    omni_filter = makePathFilter(cfg['rules'])
-    dir_filter = makeDirFilter(cfg['rules'])
-    paths_to_watch = list(get_dirs_to_watch(cfg['basedir'], dir_filter))
+    dir_filter = get_dir_filter(cfg['group'])
 
-    if logging.getLogger().isEnabledFor(logging.DEBUG):
-        logger.debug('Paths to watch: %r', list(paths_to_watch))
+    paths_to_watch = list(get_dirs_to_watch(basedir, dir_filter))
 
     if not paths_to_watch:
         raise NoPathsToWatchException('Nothing to watch')
 
-    cmd_queue_in = Queue()
-    end_event = threading.Event()
-    cmd_launch_pad = CmdLaunchPad(cfg['cmd'], queue_in=cmd_queue_in, end_event=end_event)
+    logger.debug('Paths to watch: %r', paths_to_watch)
+
+    picky_launch_pads = []
+    launch_pads = []
+    for path_filter, lp in get_pairs_filter2launch_pads(cfg):
+        plp = PickyEater(path_filter, lp.add_item_to_process)
+
+        launch_pads.append(lp)
+        picky_launch_pads.append(plp)
 
     observer = Observer()
-    observer.subscribe(FsRadarEvent.FILE_MATCH, lambda ev: cmd_queue_in.put(ev.data))
+    on_file_match = make_launch_pads_notifier(picky_launch_pads, basedir)
+    observer.subscribe(FsRadarEvent.FILE_MATCH, on_file_match)
 
-    with FsRadar(dir_filter, omni_filter, observer) as fsr:
+    with FsRadar(dir_filter, observer) as fsr:
         for path in paths_to_watch:
             fsr.add_watch(os.path.abspath(path))
 
         try:
-            cmd_launch_pad.start()
+            end_event = threading.Event()
+            for lp in launch_pads:
+                lp.set_end_event(end_event)
+                lp.start()
+
             fsr.run_forever()
         finally:
             end_event.set()
-            cmd_launch_pad.join()
+            [lp.join() for lp in launch_pads]
 
 
 def main(argv):
@@ -149,8 +181,8 @@ def main(argv):
     cfg = get_config(args)
     logger.debug('Config: %r', cfg)
 
-    if not os.path.exists(cfg['basedir']):
-        raise BaseDirNotExistsExcpetion(cfg['basedir'])
+    if not os.path.exists(cfg['fs_radar']['basedir']):
+        raise BaseDirNotExistsExcpetion(cfg['fs_radar']['basedir'])
 
     start(cfg)
 
@@ -160,8 +192,14 @@ if __name__ == '__main__':
         main(sys.argv)
     except KeyboardInterrupt:
         sys.exit(130)
+    except ConfigException:
+        sys.exit(2)
+    except NoPathsToWatchException:
+        sys.exit(3)
+    except BaseDirNotExistsExcpetion:
+        sys.exit(4)
     except Exception as e:
-        logger.error(e)
+        logger.exception(e)
         sys.exit(1)
     finally:
         logging.shutdown()

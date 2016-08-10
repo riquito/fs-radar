@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 # *-* encoding: utf-8 *-*
 
+import logging
 import toml
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigException(Exception):
@@ -17,11 +20,43 @@ def load_from_toml(settings_path):
             message = 'Error while reading toml file: {}'.format(e)
             raise ConfigException(message) from e
 
-    rules = data.get('rules')
-    if rules and isinstance(rules, str):
-        data['rules'] = list(_parse_rules_string(rules))
+    for key in ('fs_radar', 'group'):
+        if key not in data:
+            logger.error('Config file requires a namespace named \'%s\'' % key)
+            raise ConfigException()
+
+    try:
+        data['fs_radar']['basedir']
+    except KeyError as e:
+        logger.error('Config file requires a field \'basedir\' in the namespace \'fs_radar\'')
+        raise ConfigException() from None
+
+    for group in data['group']:
+        cmd_confs = data['group'][group]
+
+        try:
+            cmd_confs['rules'] = _normalize_rules(cmd_confs['rules'])
+        except KeyError:
+            logger.error('Config file requires a field \'rules\' in every namespace')
+            raise ConfigException() from None
 
     return data
+
+
+def _normalize_rules(rules):
+    '''Ensure that rules are in list format
+
+    `rules` can be either a list (in such case is returned as is)
+    or a string.
+    The string format is:
+    - lines starting with # are skipped
+    - empty (trimmed) lines are skypped
+    - all other lines are threated as a glob path
+    '''
+    if isinstance(rules, str):
+        return list(_parse_rules_string(rules))
+    else:
+        return rules
 
 
 def _parse_rules_string(rules_string):
