@@ -8,12 +8,12 @@ from inotify_simple import INotify, flags, masks
 
 logger = logging.getLogger(__spec__.name)
 
-FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH'])
+FsRadarEvent = namedtuple('FsRadarEvent', ['FILE_MATCH', 'FILE_GONE'])
 
 
 class FsRadar:
 
-    def __init__(self, dir_filter, file_filter, observer):
+    def __init__(self, dir_filter, observer):
         self.inotify = INotify()
         self.watch_flags = flags.CREATE | flags.DELETE | flags.MODIFY | flags.DELETE_SELF
         self.watch_flags = masks.ALL_EVENTS
@@ -29,7 +29,6 @@ class FsRadar:
 
         self.wds = {}
         self.dir_filter = dir_filter
-        self.file_filter = file_filter
         self.observer = observer
 
     def add_watch(self, path):
@@ -90,14 +89,11 @@ class FsRadar:
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
-        logger.debug('File written (not necessarily modified): %s', important(path))
-        if self.file_filter(path):
-            logger.info('Watched file written: %s', path)
-            self.observer.notify(FsRadarEvent.FILE_MATCH, path)
+        self.observer.notify(FsRadarEvent.FILE_MATCH, path)
 
     def on_file_gone(self, path):
         '''The file/directory at `path` was either unlinked, moved or unmounted'''
-        logger.debug('File gone: %s', path)
+        self.observer.notify(FsRadarEvent.FILE_GONE, path)
 
     def run_forever(self):
         while True:

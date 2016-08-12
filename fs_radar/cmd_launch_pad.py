@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class CmdLaunchPad(Thread):
 
-    def __init__(self, cmd_template, queue_in, options=None, end_event=None):
+    def __init__(self, cmd_template, options=None, end_event=None):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{
             'stop_previous_process': False,
@@ -24,10 +24,16 @@ class CmdLaunchPad(Thread):
         self.process_start_time = 0
 
         self.queue_process = Queue()
-        self.queue_in = queue_in
+        self.queue_in = Queue()
         self.end_event = end_event
 
         self.cmd_template = self._normalize_cmd_substitution_token(cmd_template)
+
+    def add_item_to_process(self, item):
+        self.queue_in.put(item)
+
+    def set_end_event(self, event):
+        self.end_event = event
 
     def is_process_alive(self):
         '''Is the process still running?
@@ -59,7 +65,7 @@ class CmdLaunchPad(Thread):
                 if exit_status == 0:
                     logger.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
                 else:
-                    logger.warn('Process ended:\ncommand was: %s\nexit status: %s, utput (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
+                    logger.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
 
             except EmptyException as e:
                 pass
@@ -67,7 +73,7 @@ class CmdLaunchPad(Thread):
             try:
                 parameter = self.queue_in.get(block=True, timeout=1)
             except EmptyException as e:
-                if self.end_event.is_set():
+                if self.end_event and self.end_event.is_set():
                     logger.debug('Terminate thread as requested')
                     break
                 else:
