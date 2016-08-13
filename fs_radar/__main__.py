@@ -30,7 +30,7 @@ class NoPathsToWatchException(FsRadarException):
     pass
 
 
-class BaseDirNotExistsExcpetion(FsRadarException):
+class BaseDirNotExistsException(FsRadarException):
     pass
 
 
@@ -182,7 +182,7 @@ def main(argv):
     logger.debug('Config: %r', cfg)
 
     if not os.path.exists(cfg['fs_radar']['basedir']):
-        raise BaseDirNotExistsExcpetion(cfg['fs_radar']['basedir'])
+        raise BaseDirNotExistsException(cfg['fs_radar']['basedir'])
 
     start(cfg)
 
@@ -196,7 +196,7 @@ if __name__ == '__main__':
         sys.exit(2)
     except NoPathsToWatchException:
         sys.exit(3)
-    except BaseDirNotExistsExcpetion:
+    except BaseDirNotExistsException:
         sys.exit(4)
     except Exception as e:
         logger.exception(e)
