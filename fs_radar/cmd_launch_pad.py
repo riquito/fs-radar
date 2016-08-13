@@ -1,6 +1,8 @@
 import logging
 from multiprocessing import Queue, Process
 from queue import Empty as EmptyException
+import os
+import pty
 import re
 import subprocess
 from threading import Thread
@@ -130,17 +132,29 @@ def run_command(cmd):
     @param string cmd the command to run
     @return tuple (exit status code, output as a string)
     '''
-    exit_status = 0
 
-    try:
-        output_b = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
-    except subprocess.CalledProcessError as e:
-        output_b = e.output
-        exit_status = e.returncode
+    # 1. /usr/bin/env bash because not everyone has bash in /bin/
+    # 2. -l because we want to read .bash_profile or brothers
+    # 3. -i because -l isn't enough
+    # 4. use a pty because it's required by using -i
+    # 5. start_new_session because otherwise we get
+    # bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+    # bash: no job control in this shell
+    master, slave = pty.openpty()
+    args = ['/usr/bin/env', 'bash', '-i', '-l', '-c', cmd]
+    cp = subprocess.run(
+        args,
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True
+    )
+    os.close(slave)  # close slave on master's process
 
-    output = output_b.decode('utf-8')
 
-    return (exit_status, output)
+    output = cp.stdout.decode('utf-8')
+
+    return (cp.returncode, output)
 
 
 def run_command_with_queue(cmd, queue):
