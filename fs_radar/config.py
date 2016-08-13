@@ -35,6 +35,12 @@ def load_from_toml(settings_path):
         cmd_confs = data['group'][group]
 
         try:
+            cmd_confs['cmd']
+        except KeyError:
+            logger.error('Config file requires a field \'cmd\' in every namespace')
+            raise ConfigException() from None
+
+        try:
             cmd_confs['rules'] = _normalize_rules(cmd_confs['rules'])
         except KeyError:
             logger.error('Config file requires a field \'rules\' in every namespace')

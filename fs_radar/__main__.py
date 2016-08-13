@@ -195,8 +195,10 @@ if __name__ == '__main__':
     except ConfigException:
         sys.exit(2)
     except NoPathsToWatchException:
+        logger.error('There isn\'t any path matching the configured routes')
         sys.exit(3)
-    except BaseDirNotExistsException:
+    except BaseDirNotExistsException as e:
+        logger.error('Path configured as `basedir` was not found: %s', e.args[0])
         sys.exit(4)
     except Exception as e:
         logger.exception(e)
