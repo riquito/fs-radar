@@ -20,6 +20,8 @@ while read st file; do
         elif [[ "$(printf "$autopep8_output" | grep -E '[1-9][0-9]* issue' -o)" != "" ]]; then
             printf "$autopep8_output"
             echo
+            # sometimes autopep8 output is not clear enough
+            pycodestyle "$file"
             status=1
         fi
     fi
