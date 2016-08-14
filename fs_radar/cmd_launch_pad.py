@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from multiprocessing import Queue, Process
 from queue import Empty as EmptyException
@@ -14,9 +15,18 @@ from chromalog.mark.helpers.simple import success, error, important
 logger = logging.getLogger(__name__)
 
 
+class CommandNameLogAdapter(logging.LoggerAdapter):
+    """This adapter expects the passed in dict-like object to have a 'cmd_name'
+    key, whose value in brackets is prepended to the log message.
+    """
+
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['cmd_name'], msg), kwargs
+
+
 class CmdLaunchPad(Thread):
 
-    def __init__(self, cmd_template, options=None, end_event=None):
+    def __init__(self, cmd_template, options=None, end_event=None, name=''):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{
             'stop_previous_process': False,
@@ -31,6 +41,11 @@ class CmdLaunchPad(Thread):
         self.end_event = end_event
 
         self.cmd_template = self._normalize_cmd_substitution_token(cmd_template)
+
+        if not name:
+            name = hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
+
+        self.adapter = CommandNameLogAdapter(logger, {'cmd_name': name})
 
     def add_item_to_process(self, item):
         self.queue_in.put(item)
@@ -61,17 +76,17 @@ class CmdLaunchPad(Thread):
     def run(self):
         '''Run an infinite loop that wait for requests to run a process.'''
 
-        logger.debug('Run cmd launch pad')
+        self.adapter.debug('Run cmd launch pad')
         while True:
             try:
                 exit_status, cmd, output = self.queue_process.get(block=False)
                 if exit_status is None:
                     # process produced output and is still running
-                    logger.info('%s', output.strip())
+                    self.adapter.info('[%s] %s', self.name, output.strip())
                 elif exit_status == 0:
-                    logger.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
+                    self.adapter.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
                 else:
-                    logger.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
+                    self.adapter.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
 
             except EmptyException as e:
                 pass
@@ -80,19 +95,19 @@ class CmdLaunchPad(Thread):
                 parameter = self.queue_in.get(block=True, timeout=1)
             except EmptyException as e:
                 if self.end_event and self.end_event.is_set():
-                    logger.debug('Terminate thread as requested')
+                    self.adapter.debug('Terminate thread as requested')
                     break
                 else:
                     continue
 
-            logger.debug('Got parameter %s', parameter)
+            self.adapter.debug('Got parameter %s', parameter)
 
             if self.is_process_alive() and self.options['stop_previous_process']:
-                logger.debug('Stop previous process')
+                self.adapter.debug('Stop previous process')
                 self.terminate_process()
 
             if self.is_process_alive() and self.options['can_discard']:
-                logger.debug('Process already running, can discard')
+                self.adapter.debug('Process already running, can discard')
                 continue
 
             if self.is_process_alive():
@@ -100,7 +115,7 @@ class CmdLaunchPad(Thread):
                 # nor discard the new event: let's wait for the process to end.
 
                 time_left = self.get_seconds_until_process_timeout()
-                logger.debug('Wait at most %d seconds for the process to time out', time_left)
+                self.adapter.debug('Wait at most %d seconds for the process to time out', time_left)
                 while time_left > 0:
                     sleep(1)
                     time_left -= 1
@@ -108,12 +123,12 @@ class CmdLaunchPad(Thread):
                         break
 
                 if self.p.is_alive():
-                    logger.warn('Process timed out')
+                    self.adapter.warn('Process timed out')
                     self.terminate_process()
                 else:
-                    logger.debug('Process terminated naturally')
+                    self.adapter.debug('Process terminated naturally')
 
-            logger.debug('Start a new process')
+            self.adapter.debug('Start a new process')
             self.run_process(self.cmd_template, parameter)
 
     def _normalize_cmd_substitution_token(self, cmd_template):
@@ -125,7 +140,7 @@ class CmdLaunchPad(Thread):
         of {} with `parameter`'''
         self.process_start_time = time()
         cmd_line = cmd_template.replace('{}', parameter)
-        logger.debug('Command line is %s', cmd_line)
+        self.adapter.debug('Command line is %s', cmd_line)
         self.p = Process(target=run_command_with_queue, args=(cmd_line, self.queue_process))
         self.p.start()
 
