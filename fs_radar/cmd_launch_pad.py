@@ -68,6 +68,14 @@ class CmdLaunchPad(Thread):
         self.p = None
         self.process_start_time = 0
 
+        try:
+            # empty queue_process queue, we don't want to keep
+            # old unread output around
+            while True:
+                self.queue_process.get(block=False)
+        except EmptyException:
+            pass
+
     def get_seconds_until_process_timeout(self):
         '''Return the number of seconds remaining until the process
         is to be considered as timed out.'''
@@ -78,58 +86,67 @@ class CmdLaunchPad(Thread):
 
         self.adapter.debug('Run cmd launch pad')
         while True:
-            try:
-                exit_status, cmd, output = self.queue_process.get(block=False)
-                if exit_status is None:
-                    # process produced output and is still running
-                    self.adapter.info('[%s] %s', self.name, output.strip())
-                elif exit_status == 0:
-                    self.adapter.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
+
+            if self.end_event and self.end_event.is_set():
+                self.adapter.debug('Terminate thread as requested')
+                break
+
+            readers = [
+                self.queue_process._reader,
+                self.queue_in._reader
+            ]
+
+            r, w, x = select.select(readers, [], [], 1)
+            for ready in r:
+                if ready == self.queue_process._reader:
+                    self.on_process_queue_item_received(self.queue_process.get(block=True))
+                elif ready == self.queue_in._reader:
+                    self.on_parameter_received(self.queue_in.get(block=True))
                 else:
-                    self.adapter.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
+                    raise Error('Unexpected input')
 
-            except EmptyException as e:
-                pass
+    def on_parameter_received(self, parameter):
+        self.adapter.debug('Got parameter %s', parameter)
 
-            try:
-                parameter = self.queue_in.get(block=True, timeout=1)
-            except EmptyException as e:
-                if self.end_event and self.end_event.is_set():
-                    self.adapter.debug('Terminate thread as requested')
+        if self.is_process_alive() and self.options['stop_previous_process']:
+            self.adapter.debug('Stop previous process')
+            self.terminate_process()
+
+        if self.is_process_alive() and self.options['can_discard']:
+            self.adapter.debug('Process already running, can discard')
+            return
+
+        if self.is_process_alive():
+            # There is a running process and I couldn't neither interrupt it
+            # nor discard the new event: let's wait for the process to end.
+
+            time_left = self.get_seconds_until_process_timeout()
+            self.adapter.debug('Wait at most %d seconds for the process to time out', time_left)
+            while time_left > 0:
+                sleep(1)
+                time_left -= 1
+                if not self.is_process_alive():
                     break
-                else:
-                    continue
 
-            self.adapter.debug('Got parameter %s', parameter)
-
-            if self.is_process_alive() and self.options['stop_previous_process']:
-                self.adapter.debug('Stop previous process')
+            if self.p.is_alive():
+                self.adapter.warn('Process timed out')
                 self.terminate_process()
+            else:
+                self.adapter.debug('Process terminated naturally')
 
-            if self.is_process_alive() and self.options['can_discard']:
-                self.adapter.debug('Process already running, can discard')
-                continue
+        self.adapter.info('### START PROCESS ###')
+        self.run_process(self.cmd_template, parameter)
 
-            if self.is_process_alive():
-                # There is a running process and I couldn't neither interrupt it
-                # nor discard the new event: let's wait for the process to end.
+    def on_process_queue_item_received(self, item):
+        exit_status, cmd, output = item
 
-                time_left = self.get_seconds_until_process_timeout()
-                self.adapter.debug('Wait at most %d seconds for the process to time out', time_left)
-                while time_left > 0:
-                    sleep(1)
-                    time_left -= 1
-                    if not self.is_process_alive():
-                        break
-
-                if self.p.is_alive():
-                    self.adapter.warn('Process timed out')
-                    self.terminate_process()
-                else:
-                    self.adapter.debug('Process terminated naturally')
-
-            self.adapter.debug('Start a new process')
-            self.run_process(self.cmd_template, parameter)
+        if exit_status is None:
+            # process produced output and is still running
+            self.adapter.info('%s', output.strip())
+        elif exit_status == 0:
+            self.adapter.info('### END (status %s) ###', success(exit_status))
+        else:
+            self.adapter.info('### END (status %s) ###', error(exit_status))
 
     def _normalize_cmd_substitution_token(self, cmd_template):
         '''Normalize the token to {}. cmd can hold '{}' or "{}" or {}'''
