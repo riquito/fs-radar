@@ -4,6 +4,7 @@ from queue import Empty as EmptyException
 import os
 import pty
 import re
+import select
 import subprocess
 from threading import Thread
 from time import time, sleep
@@ -64,7 +65,10 @@ class CmdLaunchPad(Thread):
         while True:
             try:
                 exit_status, cmd, output = self.queue_process.get(block=False)
-                if exit_status == 0:
+                if exit_status is None:
+                    # process produced output and is still running
+                    logger.info('%s', output.strip())
+                elif exit_status == 0:
                     logger.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
                 else:
                     logger.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
@@ -140,9 +144,11 @@ def run_command(cmd):
     # 5. start_new_session because otherwise we get
     # bash: cannot set terminal process group (-1): Inappropriate ioctl for device
     # bash: no job control in this shell
+    # (it also sets a process group so if we kill the shell we kill
+    # the subprocess too)
     master, slave = pty.openpty()
     args = ['/usr/bin/env', 'bash', '-i', '-l', '-c', cmd]
-    cp = subprocess.run(
+    p = subprocess.Popen(
         args,
         stdin=slave,
         stdout=subprocess.PIPE,
@@ -151,10 +157,7 @@ def run_command(cmd):
     )
     os.close(slave)  # close slave on master's process
 
-
-    output = cp.stdout.decode('utf-8')
-
-    return (cp.returncode, output)
+    return p
 
 
 def run_command_with_queue(cmd, queue):
@@ -166,6 +169,22 @@ def run_command_with_queue(cmd, queue):
     @param string cmd the command to run
     @param Queue queue where to put the data when the process end
     '''
-    exit_status, output = run_command(cmd)
-    queue.put((exit_status, cmd, output))
+
+    p = run_command(cmd)
+
+    while True:
+        data = ''
+        r, w, x = select.select([p.stdout], [], [], 10)
+        if r:
+            data = r[0].readline()
+            if data:
+                queue.put((None, cmd, data.decode('utf-8').rstrip()))
+
+        if not data and p.returncode is not None:
+            # Terminate when we've read all the output and the returncode is set
+            break
+
+        p.poll()  # updates returncode so we can exit the loop
+
+    queue.put((p.returncode, cmd, ''))
     queue.close()
