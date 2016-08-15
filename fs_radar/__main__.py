@@ -119,9 +119,9 @@ def setup_logs(args):
 
 def get_pairs_filter2launch_pads(cfg):
     '''Generate a list o pairs (path_filter, launch pad)'''
-    for group in cfg['group'].values():
+    for name, group in cfg['group'].items():
         path_filter = makePathFilter(group['rules'])
-        lp = CmdLaunchPad(group['cmd'])
+        lp = CmdLaunchPad(group['cmd'], name=name)
         yield (path_filter, lp)
 
 

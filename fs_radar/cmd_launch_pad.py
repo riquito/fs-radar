@@ -1,21 +1,30 @@
+import hashlib
 import logging
-from multiprocessing import Queue, Process
+from multiprocessing import Event, Process, Queue
 from queue import Empty as EmptyException
-import os
-import pty
 import re
+import select
 import subprocess
 from threading import Thread
-from time import time, sleep
+import fs_radar.shell_process
 
 from chromalog.mark.helpers.simple import success, error, important
 
 logger = logging.getLogger(__name__)
 
 
+class CommandNameLogAdapter(logging.LoggerAdapter):
+    """This adapter expects the passed in dict-like object to have a 'cmd_name'
+    key, whose value in brackets is prepended to the log message.
+    """
+
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['cmd_name'], msg), kwargs
+
+
 class CmdLaunchPad(Thread):
 
-    def __init__(self, cmd_template, options=None, end_event=None):
+    def __init__(self, cmd_template, options=None, end_event=None, name=''):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{
             'stop_previous_process': False,
@@ -23,13 +32,18 @@ class CmdLaunchPad(Thread):
             'timeout': 30,
         }, **(options or {})}
         self.p = None
-        self.process_start_time = 0
 
         self.queue_process = Queue()
         self.queue_in = Queue()
         self.end_event = end_event
+        self.timed_out_event = Event()
 
         self.cmd_template = self._normalize_cmd_substitution_token(cmd_template)
+
+        if not name:
+            name = hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
+
+        self.adapter = CommandNameLogAdapter(logger, {'cmd_name': name})
 
     def add_item_to_process(self, item):
         self.queue_in.put(item)
@@ -48,69 +62,79 @@ class CmdLaunchPad(Thread):
         '''Kill the process sending to it a SIGTERM signal.
 
         Also reset process related variables.'''
-        self.p.terminate()
-        self.p = None
-        self.process_start_time = 0
 
-    def get_seconds_until_process_timeout(self):
-        '''Return the number of seconds remaining until the process
-        is to be considered as timed out.'''
-        return max(0, self.process_start_time + self.options['timeout'] - time())
+        if not self.p:
+            return
+
+        self.p.terminate()
+        self.p.join()
+        self.p = None
+
+        # the queue may have become corrupt after the use of terminate()
+        # https://docs.python.org/3.5/library/multiprocessing.html#multiprocessing.Process.terminate
+        self.queue_process = Queue()
 
     def run(self):
         '''Run an infinite loop that wait for requests to run a process.'''
 
-        logger.debug('Run cmd launch pad')
+        self.adapter.debug('Run cmd launch pad')
         while True:
-            try:
-                exit_status, cmd, output = self.queue_process.get(block=False)
-                if exit_status == 0:
-                    logger.info('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[success(i) for i in (cmd, exit_status, output)])  # noqa
-                else:
-                    logger.warn('Process ended:\ncommand was: %s\nexit status: %s, output (from the next line):\n%s', *[error(i) for i in (cmd, exit_status, output)])  # noqa
 
-            except EmptyException as e:
-                pass
-
-            try:
-                parameter = self.queue_in.get(block=True, timeout=1)
-            except EmptyException as e:
-                if self.end_event and self.end_event.is_set():
-                    logger.debug('Terminate thread as requested')
-                    break
-                else:
-                    continue
-
-            logger.debug('Got parameter %s', parameter)
-
-            if self.is_process_alive() and self.options['stop_previous_process']:
-                logger.debug('Stop previous process')
+            if self.end_event and self.end_event.is_set():
+                self.adapter.debug('Terminate thread as requested')
                 self.terminate_process()
+                break
+            elif self.timed_out_event.is_set():
+                self.adapter.info('### END PROCESS - %s ###', error('timed out'))
+                self.on_process_timed_out()
 
-            if self.is_process_alive() and self.options['can_discard']:
-                logger.debug('Process already running, can discard')
-                continue
+            readers = [
+                self.queue_process._reader,
+                self.queue_in._reader
+            ]
 
-            if self.is_process_alive():
-                # There is a running process and I couldn't neither interrupt it
-                # nor discard the new event: let's wait for the process to end.
-
-                time_left = self.get_seconds_until_process_timeout()
-                logger.debug('Wait at most %d seconds for the process to time out', time_left)
-                while time_left > 0:
-                    sleep(1)
-                    time_left -= 1
-                    if not self.is_process_alive():
-                        break
-
-                if self.p.is_alive():
-                    logger.warn('Process timed out')
-                    self.terminate_process()
+            r, w, x = select.select(readers, [], [], 1)
+            for ready in r:
+                if ready == self.queue_process._reader:
+                    self.on_process_queue_item_received(self.queue_process.get(block=True))
+                elif ready == self.queue_in._reader:
+                    self.on_parameter_received(self.queue_in.get(block=True))
                 else:
-                    logger.debug('Process terminated naturally')
+                    raise Error('Unexpected input')
 
-            logger.debug('Start a new process')
+    def on_process_timed_out(self):
+        self.timed_out_event.clear()
+        self.p = None
+        self.queue_process = Queue()
+
+    def on_parameter_received(self, parameter):
+        self.adapter.debug('Got parameter %s', parameter)
+
+        if self.is_process_alive() and self.options['can_discard']:
+            self.adapter.debug('Process already running, can discard')
+            return
+
+        if self.is_process_alive() and self.options['stop_previous_process']:
+            self.adapter.debug('Stop previous process')
+            self.terminate_process()
+
+        if not self.is_process_alive():
+            self.adapter.info('### START PROCESS ###')
             self.run_process(self.cmd_template, parameter)
+
+    def on_process_queue_item_received(self, item):
+        exit_status, output = item
+
+        if exit_status is None:
+            # process produced output and is still running
+            self.adapter.info('%s', output.strip())
+        else:
+            if exit_status == 0:
+                self.adapter.info('### END PROCESS - exit status %s ###', success(exit_status))
+            else:
+                self.adapter.info('### END PROCESS - exit status %s ###', error(exit_status))
+
+            self.p = None
 
     def _normalize_cmd_substitution_token(self, cmd_template):
         '''Normalize the token to {}. cmd can hold '{}' or "{}" or {}'''
@@ -119,53 +143,37 @@ class CmdLaunchPad(Thread):
     def run_process(self, cmd_template, parameter):
         '''Run the command after replacing every occurrence
         of {} with `parameter`'''
-        self.process_start_time = time()
         cmd_line = cmd_template.replace('{}', parameter)
-        logger.debug('Command line is %s', cmd_line)
-        self.p = Process(target=run_command_with_queue, args=(cmd_line, self.queue_process))
+        self.adapter.debug('Command line is %s', cmd_line)
+        self.p = Process(target=run_command_with_queue, args=(
+            cmd_line,
+            self.options['timeout'],
+            self.queue_process,
+            self.timed_out_event
+        ))
         self.p.start()
+        # run_command_with_queue(cmd_line, self.queue_process)
 
 
-def run_command(cmd):
-    '''Spawn a blocking process to run `cmd`
-
-    @param string cmd the command to run
-    @return tuple (exit status code, output as a string)
-    '''
-
-    # 1. /usr/bin/env bash because not everyone has bash in /bin/
-    # 2. -l because we want to read .bash_profile or brothers
-    # 3. -i because -l isn't enough
-    # 4. use a pty because it's required by using -i
-    # 5. start_new_session because otherwise we get
-    # bash: cannot set terminal process group (-1): Inappropriate ioctl for device
-    # bash: no job control in this shell
-    master, slave = pty.openpty()
-    args = ['/usr/bin/env', 'bash', '-i', '-l', '-c', cmd]
-    cp = subprocess.run(
-        args,
-        stdin=slave,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True
-    )
-    os.close(slave)  # close slave on master's process
+def _make_callback_on_process_line_read(queue):
+    return lambda exit_status, line: queue.put((exit_status, line))
 
 
-    output = cp.stdout.decode('utf-8')
+def run_command_with_queue(cmd, timeout, queue, timed_out_event):
+    '''Run `cmd` in a shell, put every line it outputs in the queue
+    one line at a time.
 
-    return (cp.returncode, output)
-
-
-def run_command_with_queue(cmd, queue):
-    '''Spawn a blocking process to run `cmd`, set his result in the `queue`.
-
-    The queue will receive a tuple (exit status code, cmd, output as a string)
-    when the process end.
+    Each item put in the queue is a tuple (exit status (or None), cmd, line)
 
     @param string cmd the command to run
-    @param Queue queue where to put the data when the process end
+    @param int timeout max time to complete the process. If the timeout expires
+               the process is killed and timed_out_event is set
+    @param subprocess.Queue queue the queue where to put the data
+    @param multiprocessing.Event timed_out_event event set if the process times out
     '''
-    exit_status, output = run_command(cmd)
-    queue.put((exit_status, cmd, output))
-    queue.close()
+    p = fs_radar.shell_process.popen_shell_command(cmd)
+    callback = _make_callback_on_process_line_read(queue)
+    try:
+        fs_radar.shell_process.consume_output_line_by_line(p, callback, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out_event.set()
