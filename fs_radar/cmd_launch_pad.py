@@ -123,7 +123,7 @@ class CmdLaunchPad(Thread):
             self.run_process(self.cmd_template, parameter)
 
     def on_process_queue_item_received(self, item):
-        exit_status, cmd, output = item
+        exit_status, output = item
 
         if exit_status is None:
             # process produced output and is still running
@@ -152,10 +152,11 @@ class CmdLaunchPad(Thread):
             self.timed_out_event
         ))
         self.p.start()
+        # run_command_with_queue(cmd_line, self.queue_process)
 
 
-def _make_callback_on_process_line_read(cmd, queue):
-    return lambda exit_status, line: queue.put((exit_status, cmd, line))
+def _make_callback_on_process_line_read(queue):
+    return lambda exit_status, line: queue.put((exit_status, line))
 
 
 def run_command_with_queue(cmd, timeout, queue, timed_out_event):
@@ -171,7 +172,7 @@ def run_command_with_queue(cmd, timeout, queue, timed_out_event):
     @param multiprocessing.Event timed_out_event event set if the process times out
     '''
     p = fs_radar.shell_process.popen_shell_command(cmd)
-    callback = _make_callback_on_process_line_read(cmd, queue)
+    callback = _make_callback_on_process_line_read(queue)
     try:
         fs_radar.shell_process.consume_output_line_by_line(p, callback, timeout=timeout)
     except subprocess.TimeoutExpired:
