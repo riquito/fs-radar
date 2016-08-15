@@ -109,11 +109,11 @@ class CmdLaunchPad(Thread):
         self.adapter.debug('Got parameter %s', parameter)
 
         if self.is_process_alive() and self.options['discard_if_already_running']:
-            self.adapter.debug('Process already running, can discard')
+            self.adapter.debug('Process already running, discard request')
             return
 
         if self.is_process_alive() and self.options['stop_previous_process']:
-            self.adapter.debug('Stop previous process')
+            self.adapter.info('### END PROCESS - %s ###', error('interrupted'))
             self.terminate_process()
 
         if not self.is_process_alive():
