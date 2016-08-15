@@ -22,14 +22,12 @@ def load_from_toml(settings_path):
 
     for key in ('fs_radar', 'group'):
         if key not in data:
-            logger.error('Config file requires a namespace named \'%s\'' % key)
-            raise ConfigException()
+            raise ConfigException('Config file requires a namespace named \'%s\'' % key)
 
     try:
         data['fs_radar']['basedir']
     except KeyError as e:
-        logger.error('Config file requires a field \'basedir\' in the namespace \'fs_radar\'')
-        raise ConfigException() from None
+        raise ConfigException('Config file requires a field \'basedir\' in the namespace \'fs_radar\'') from None
 
     for group in data['group']:
         cmd_confs = data['group'][group]
@@ -37,14 +35,12 @@ def load_from_toml(settings_path):
         try:
             cmd_confs['cmd']
         except KeyError:
-            logger.error('Config file requires a field \'cmd\' in every namespace')
-            raise ConfigException() from None
+            raise ConfigException('Config file requires a field \'cmd\' in every namespace') from None
 
         try:
             cmd_confs['rules'] = _normalize_rules(cmd_confs['rules'])
         except KeyError:
-            logger.error('Config file requires a field \'rules\' in every namespace')
-            raise ConfigException() from None
+            raise ConfigException('Config file requires a field \'rules\' in every namespace') from None
 
     return data
 

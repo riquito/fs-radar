@@ -192,7 +192,8 @@ if __name__ == '__main__':
         main(sys.argv)
     except KeyboardInterrupt:
         sys.exit(130)
-    except ConfigException:
+    except ConfigException as e:
+        logger.error(e)
         sys.exit(2)
     except NoPathsToWatchException:
         logger.error('There isn\'t any path matching the configured routes')
