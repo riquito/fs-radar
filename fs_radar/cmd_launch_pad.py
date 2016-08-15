@@ -30,7 +30,8 @@ class CmdLaunchPad(Thread):
             'stop_previous_process': False,
             'discard_if_already_running': True,
             'timeout': 30,
-            'name': hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
+            'name': hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6],
+            'bash_profile': None,
         }, **(options or {})}
         self.p = None
 
@@ -147,7 +148,8 @@ class CmdLaunchPad(Thread):
             cmd_line,
             self.options['timeout'],
             self.queue_process,
-            self.timed_out_event
+            self.timed_out_event,
+            self.options['bash_profile']
         ))
         self.p.start()
         # run_command_with_queue(cmd_line, self.queue_process)
@@ -157,7 +159,7 @@ def _make_callback_on_process_line_read(queue):
     return lambda exit_status, line: queue.put((exit_status, line))
 
 
-def run_command_with_queue(cmd, timeout, queue, timed_out_event):
+def run_command_with_queue(cmd, timeout, queue, timed_out_event, bash_profile=None):
     '''Run `cmd` in a shell, put every line it outputs in the queue
     one line at a time.
 
@@ -169,7 +171,7 @@ def run_command_with_queue(cmd, timeout, queue, timed_out_event):
     @param subprocess.Queue queue the queue where to put the data
     @param multiprocessing.Event timed_out_event event set if the process times out
     '''
-    p = fs_radar.shell_process.popen_shell_command(cmd)
+    p = fs_radar.shell_process.popen_shell_command(cmd, bash_profile=bash_profile)
     callback = _make_callback_on_process_line_read(queue)
     try:
         fs_radar.shell_process.consume_output_line_by_line(p, callback, timeout=timeout)

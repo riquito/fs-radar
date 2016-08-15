@@ -5,13 +5,19 @@ import select
 import subprocess
 
 
-def popen_shell_command(cmd, merge_stderr=True):
+def popen_shell_command(cmd, merge_stderr=True, bash_profile=None):
     '''Spawn a process to run `cmd`
 
     @param string cmd the command to run
     @param bool merge_stderr whether to read from stderr too (default True)
     @return object a Popen instance
     '''
+
+    bash_profile_opts = []
+    if bash_profile is True:
+        bash_profile_opts = ['-l']
+    elif isinstance(bash_profile, str):
+        bash_profile_opts = ['--init-file', bash_profile]
 
     # 1. /usr/bin/env bash because not everyone has bash in /bin/
     # 2. -l because we want to read .bash_profile or brothers
@@ -23,7 +29,7 @@ def popen_shell_command(cmd, merge_stderr=True):
     # (it also sets a process group so if we kill the shell we kill
     # the subprocess too)
     master, slave = pty.openpty()
-    args = ['/usr/bin/env', 'bash', '-i', '-l', '-c', cmd]
+    args = ['/usr/bin/env', 'bash', *bash_profile_opts, '-i', '-c', cmd]
     p = subprocess.Popen(
         args,
         stdin=slave,

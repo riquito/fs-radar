@@ -42,6 +42,9 @@ def load_from_toml(settings_path):
         except KeyError:
             raise ConfigException('Config file requires a field \'rules\' in every namespace') from None
 
+        if not cmd_confs.get('bash_profile'):
+            cmd_confs['bash_profile'] = data['fs_radar'].get('bash_profile', None)
+
     return data
 
 
