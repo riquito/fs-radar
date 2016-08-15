@@ -2,13 +2,11 @@ import hashlib
 import logging
 from multiprocessing import Queue, Process
 from queue import Empty as EmptyException
-import os
-import pty
 import re
 import select
-import subprocess
 from threading import Thread
 from time import time, sleep
+import fs_radar.shell_process
 
 from chromalog.mark.helpers.simple import success, error, important
 
@@ -162,61 +160,19 @@ class CmdLaunchPad(Thread):
         self.p.start()
 
 
-def run_command(cmd):
-    '''Spawn a blocking process to run `cmd`
-
-    @param string cmd the command to run
-    @return tuple (exit status code, output as a string)
-    '''
-
-    # 1. /usr/bin/env bash because not everyone has bash in /bin/
-    # 2. -l because we want to read .bash_profile or brothers
-    # 3. -i because -l isn't enough
-    # 4. use a pty because it's required by using -i
-    # 5. start_new_session because otherwise we get
-    # bash: cannot set terminal process group (-1): Inappropriate ioctl for device
-    # bash: no job control in this shell
-    # (it also sets a process group so if we kill the shell we kill
-    # the subprocess too)
-    master, slave = pty.openpty()
-    args = ['/usr/bin/env', 'bash', '-i', '-l', '-c', cmd]
-    p = subprocess.Popen(
-        args,
-        stdin=slave,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True
-    )
-    os.close(slave)  # close slave on master's process
-
-    return p
+def _make_callback_on_process_line_read(cmd, queue):
+    return lambda exit_status, line: queue.put((exit_status, cmd, line))
 
 
 def run_command_with_queue(cmd, queue):
-    '''Spawn a blocking process to run `cmd`, set his result in the `queue`.
+    '''Run `cmd` in a shell, put every line it outputs in the queue
+    one line at a time.
 
-    The queue will receive a tuple (exit status code, cmd, output as a string)
-    when the process end.
+    Each item put in the queue is a tuple (exit status (or None), cmd, line)
 
     @param string cmd the command to run
-    @param Queue queue where to put the data when the process end
+    @param subprocess.Queue queue the queue where to put the data
     '''
-
-    p = run_command(cmd)
-
-    while True:
-        data = ''
-        r, w, x = select.select([p.stdout], [], [], 10)
-        if r:
-            data = r[0].readline()
-            if data:
-                queue.put((None, cmd, data.decode('utf-8').rstrip()))
-
-        if not data and p.returncode is not None:
-            # Terminate when we've read all the output and the returncode is set
-            break
-
-        p.poll()  # updates returncode so we can exit the loop
-
-    queue.put((p.returncode, cmd, ''))
-    queue.close()
+    p = fs_radar.shell_process.popen_shell_command(cmd)
+    callback = _make_callback_on_process_line_read(cmd, queue)
+    fs_radar.shell_process.consume_output_line_by_line(p, callback)
