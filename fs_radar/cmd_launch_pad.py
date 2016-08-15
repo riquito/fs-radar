@@ -24,12 +24,13 @@ class CommandNameLogAdapter(logging.LoggerAdapter):
 
 class CmdLaunchPad(Thread):
 
-    def __init__(self, cmd_template, options=None, end_event=None, name=''):
+    def __init__(self, cmd_template, options=None, end_event=None):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{
             'stop_previous_process': False,
             'can_discard': True,
             'timeout': 30,
+            'name': hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
         }, **(options or {})}
         self.p = None
 
@@ -40,10 +41,7 @@ class CmdLaunchPad(Thread):
 
         self.cmd_template = self._normalize_cmd_substitution_token(cmd_template)
 
-        if not name:
-            name = hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
-
-        self.adapter = CommandNameLogAdapter(logger, {'cmd_name': name})
+        self.adapter = CommandNameLogAdapter(logger, {'cmd_name': self.options['name']})
 
     def add_item_to_process(self, item):
         self.queue_in.put(item)
