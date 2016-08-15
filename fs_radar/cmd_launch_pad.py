@@ -85,7 +85,7 @@ class CmdLaunchPad(Thread):
                 self.terminate_process()
                 break
             elif self.timed_out_event.is_set():
-                self.adapter.info('### END (process timed out) ###')
+                self.adapter.info('### END PROCESS - %s ###', error('timed out'))
                 self.on_process_timed_out()
 
             readers = [
@@ -130,9 +130,9 @@ class CmdLaunchPad(Thread):
             self.adapter.info('%s', output.strip())
         else:
             if exit_status == 0:
-                self.adapter.info('### END (status %s) ###', success(exit_status))
+                self.adapter.info('### END PROCESS - exit status %s ###', success(exit_status))
             else:
-                self.adapter.info('### END (status %s) ###', error(exit_status))
+                self.adapter.info('### END PROCESS - exit status %s ###', error(exit_status))
 
             self.p = None
 
