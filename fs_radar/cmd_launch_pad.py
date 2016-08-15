@@ -28,7 +28,7 @@ class CmdLaunchPad(Thread):
         super(CmdLaunchPad, self).__init__()
         self.options = {**{
             'stop_previous_process': False,
-            'can_discard': True,
+            'discard_if_already_running': True,
             'timeout': 30,
             'name': hashlib.sha1(cmd_template.encode('utf-8')).hexdigest()[:6]
         }, **(options or {})}
@@ -108,7 +108,7 @@ class CmdLaunchPad(Thread):
     def on_parameter_received(self, parameter):
         self.adapter.debug('Got parameter %s', parameter)
 
-        if self.is_process_alive() and self.options['can_discard']:
+        if self.is_process_alive() and self.options['discard_if_already_running']:
             self.adapter.debug('Process already running, can discard')
             return
 
