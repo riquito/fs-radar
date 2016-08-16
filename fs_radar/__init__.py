@@ -39,7 +39,7 @@ class FsRadar:
 
     def rm_watch(self, wd):
         logger.debug('Stop Watching %s', important(self.wds[wd]))
-        inotify.rm_watch(self.wds[wd])
+        self.inotify.rm_watch(self.wds[wd])
         delete(self.wds[wd])
 
     def __enter__(self):
