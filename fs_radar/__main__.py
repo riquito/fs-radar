@@ -42,11 +42,14 @@ def get_subdirs(path):
 
 
 def get_dirs_to_watch(basedir, path_filter):
-    '''Generator to iterate over all the directories that are matched
-    by `path_filter`'''
+    '''
+    Generator to iterate over all the directories that are matched
+    by `path_filter`.
+    It yields paths relative to `basedir`.
+    '''
 
     for path in get_subdirs(basedir):
-        if path_filter(path):
+        if path_filter(os.path.relpath(path, basedir)):
             yield path
 
 
