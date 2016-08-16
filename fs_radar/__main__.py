@@ -88,6 +88,7 @@ def get_args_parser():
                               default=os.path.abspath(os.getcwd()),
                               help='the base directory of the files to watch')
     parser.add_argument('-c', '--config', action='store', default=None,
+                              type=lambda config_path: os.path.join(os.getcwd(), config_path),
                               help='path to a config file')
     parser.add_argument('-i', '--include', action='append', default=[],
                               help='include this path')
