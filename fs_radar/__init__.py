@@ -39,8 +39,8 @@ class FsRadar:
 
     def rm_watch(self, wd):
         logger.debug('Stop Watching %s', important(self.wds[wd]))
-        self.inotify.rm_watch(self.wds[wd])
-        delete(self.wds[wd])
+        self.inotify.rm_watch(wd)
+        self.wds.pop(wd)
 
     def __enter__(self):
         return self
@@ -72,9 +72,10 @@ class FsRadar:
             logger.debug('Watching file, file touched')
             self.on_file_write(self.wds[event.wd])
         elif flags.IGNORED & event.mask:
-            # file/directory removed/moved/unmounted
+            # inotify_rm_watch was called automatically
+            # (file/directory removed/unmounted)
             path = self.wds[event.wd]
-            self.rm_watch(event.wd)
+            self.wds.pop(event.wd)
             self.on_file_gone(path)
 
     def on_new_dir(self, path):
