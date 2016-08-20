@@ -7,6 +7,14 @@ import toml
 logger = logging.getLogger(__name__)
 
 
+SHAREABLE_CONFIGURATIONS = [
+    'bash_profile',
+    'timeout',
+    'stop_previous_process',
+    'discard_if_already_running'
+]
+
+
 class ConfigException(Exception):
     pass
 
@@ -42,8 +50,10 @@ def load_from_toml(settings_path):
         except KeyError:
             raise ConfigException('Config file requires a field \'rules\' in every namespace') from None
 
-        if not cmd_confs.get('bash_profile'):
-            cmd_confs['bash_profile'] = data['fs_radar'].get('bash_profile', None)
+        # apply at group level some global configurations (unless already provided)
+        for conf_name in SHAREABLE_CONFIGURATIONS:
+            if not cmd_confs.get(conf_name):
+                cmd_confs[conf_name] = data['fs_radar'].get(conf_name, None)
 
     return data
 
