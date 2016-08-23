@@ -2,7 +2,8 @@ import pytest
 import unittest
 
 
-class FsRadatTest(unittest.TestCase):
+class FsRadarTest(unittest.TestCase):
+
     @pytest.fixture(autouse=True)
     def initdir(self, tmpdir):
         tmpdir.chdir()  # change to pytest-provided temporary directory
