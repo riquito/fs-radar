@@ -48,6 +48,10 @@ def makePathFilter(rules):
             reg = ruleToRegexp(rule)
             includeRegExps.append(reg)
 
+    includeRegExps = sorted(set(includeRegExps))
+    excludeRegExps = sorted(set(excludeRegExps))
+    doNotExcludeRegExps = sorted(set(doNotExcludeRegExps))
+
     INCLUDE_REGEXP = re.compile('|'.join(includeRegExps)) if includeRegExps else None
     EXCLUDE_REGEXP = re.compile('|'.join(excludeRegExps)) if excludeRegExps else None
     DO_NOT_EXCLUDE_REGEXP = re.compile('|'.join(doNotExcludeRegExps)) if doNotExcludeRegExps else None
@@ -84,4 +88,4 @@ def makeDirFilter(rules):
             else:
                 dir_rules.append(rule.rsplit('/', 1)[0] + '/')
 
-    return makePathFilter(dir_rules)
+    return makePathFilter(sorted(set(dir_rules)))
