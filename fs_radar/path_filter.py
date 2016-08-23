@@ -1,7 +1,27 @@
 #!/usr/bin/env python
 # *-* encoding: utf-8 *-*
 
+from functools import partial
 import re
+
+
+def flow(*funcs):
+    '''
+    Return a new function that when called will execute
+    all the functions in `funcs`, first to last, by feeding
+    each other with the result of the previous.
+    The first function may accept any number of parameters but
+    the others must accept only one.
+
+    The return function will return the result of the
+    latest called function.
+    '''
+    def _flow(*args):
+        for func in funcs:
+            args = [func(*args)]
+
+        return args[0]
+    return _flow
 
 
 def ruleToRegexp(rule):
@@ -21,10 +41,21 @@ def ruleToRegexp(rule):
     if rule == '.':
         return '.*'
 
-    return ('(.*/)?' if any_depth else '^(\\./)?') + re.escape(
-        # substitute multiple asterisks with a single *
-        re.sub('\*+', '*', rule)
-    ).replace('\\*', '.*?') + ('(/|$)' if is_dir else '$')
+    multi_stars_to_two_stars = partial(re.sub, '[*]{2,}', '**')
+    escaped_two_stars_to_any_char_any_deep = partial(re.sub, r'\\\*\\\*', '.*')
+    escaped_single_stars_to_any_char_any_deep = partial(re.sub, r'\\\*', '.*')
+    escaped_single_star_to_any_char_for_one_level = partial(re.sub, r'\\\*', '[^/]*')
+
+    return ''.join([
+        '(.*/)?' if any_depth else '^(\\./)?',
+        flow(
+            multi_stars_to_two_stars,
+            re.escape,
+            escaped_two_stars_to_any_char_any_deep,
+            escaped_single_star_to_any_char_for_one_level
+        )(rule),
+        '(/|$)' if is_dir else '$'
+    ])
 
 
 def makePathFilter(rules):
