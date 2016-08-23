@@ -1,10 +1,11 @@
 import pytest
 import unittest
 
-from src.path_filter import makePathFilter, makeDirFilter
+from fs_radar.path_filter import makePathFilter, makeDirFilter
 
 
 class MakePathFilterTest(unittest.TestCase):
+
     def test_empty_rules(self):
         f = makePathFilter([])
 
@@ -188,6 +189,7 @@ class MakePathFilterTest(unittest.TestCase):
 
 
 class MakeDirFilterTest(unittest.TestCase):
+
     def test_empty_rules(self):
         f = makeDirFilter([])
 
@@ -216,7 +218,7 @@ class MakeDirFilterTest(unittest.TestCase):
         f = makeDirFilter([
             'a/',
             '!a/b/',
-            '!a/c/foo.txt'
+            '!a/c/foo.txt',
             '!a/d/',
             '+a/d/baz.txt'
         ])
