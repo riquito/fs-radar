@@ -249,3 +249,23 @@ class MakeDirFilterTest(unittest.TestCase):
         assert f('foo.txt')
         assert f('./foo.txt')
         assert f('a/b/')
+
+    def test_single_asterisk_in_a_path_starting_with_dot(self):
+        f = makeDirFilter([
+            './a/*/c/'
+        ])
+
+        assert f('./a/b/c')
+        assert f('./a/b/d') is False
+        assert f('a/b/c')
+        assert f('a/b/d') is False
+
+    def test_double_asterisk_in_a_path_starting_with_dot(self):
+        f = makeDirFilter([
+            './a/**/c/'
+        ])
+
+        assert f('./a/b/c')
+        assert f('./a/b1/b2/c')
+        assert f('./a/b/d') is False
+        assert f('a/b/c')
