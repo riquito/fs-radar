@@ -86,7 +86,7 @@ class FsRadar:
             # missed the events, so we emit them artificially (with
             # the risk of having some repeated events)
             for fName in os.listdir(path):
-                self.on_file_write(join(new_dir_path, fName))
+                self.on_file_write(join(path, fName))
 
     def on_file_write(self, path):
         '''A write /directory at `path` was either unlinked, moved or unmounted'''
